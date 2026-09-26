@@ -17,29 +17,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download verified v0.3.11 Win64 build
+      - name: Rebuild verified v0.3.11 Win64 executable
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $url = "https://api.github.com/repos/jogoiarexx-blip/Reposit-rios-dos-apps/actions/artifacts/10909753004/zip"
-          $out = Join-Path $env:RUNNER_TEMP "ffx311-build.zip"
-          $headers = @{ "Accept"="application/vnd.github+json"; "X-GitHub-Api-Version"="2022-11-28" }
-          try {
-            Invoke-WebRequest -Uri $url -Headers $headers -OutFile $out -MaximumRedirection 10
-          } catch {
-            $headers["Authorization"] = "Bearer $env:GH_TOKEN"
-            Invoke-WebRequest -Uri $url -Headers $headers -OutFile $out -MaximumRedirection 10
-          }
-          if (!(Test-Path $out) -or (Get-Item $out).Length -lt 100000) { throw "Artifact download failed" }
-          $exeDir = Join-Path $env:RUNNER_TEMP "ffx311-exe"
-          Expand-Archive -Path $out -DestinationPath $exeDir -Force
-          $exe = Join-Path $exeDir "FinalFightX.exe"
-          if (!(Test-Path $exe)) { throw "FinalFightX.exe missing from artifact" }
+          $source = Join-Path $env:RUNNER_TEMP "ffx-source"
+          git clone --depth 1 --branch build-final-fight-x-v0311 https://github.com/jogoiarexx-blip/Reposit-rios-dos-apps.git $source
+          & "$source/ci-final-fight-x-v0311/build-win64.ps1" -OutputPath "$env:RUNNER_TEMP/FinalFightX.exe"
+          $exe = "$env:RUNNER_TEMP/FinalFightX.exe"
+          if (!(Test-Path $exe)) { throw "FinalFightX.exe rebuild failed" }
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne "d2d7e503b1c9c5689fd615afd89151117919e209908aa77355b9fff2ce1f3515") { throw "Unexpected EXE hash: $hash" }
-          Copy-Item $exe "$env:RUNNER_TEMP/FinalFightX.exe"
-
+          if ($hash -ne "d2d7e503b1c9c5689fd615afd89151117919e209908aa77355b9fff2ce1f3515") { throw "Unexpected rebuilt EXE hash: $hash" }
       - name: Assemble portable v0.3.11
         shell: pwsh
         run: |
