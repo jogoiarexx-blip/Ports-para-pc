@@ -17,16 +17,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Rebuild verified v0.3.11 Win64 executable
+      - name: Reconstruct verified v0.3.11 Win64 executable
         shell: pwsh
         run: |
-          $source = Join-Path $env:RUNNER_TEMP "ffx-source"
-          git clone --depth 1 --branch build-final-fight-x-v0311 https://github.com/jogoiarexx-blip/Reposit-rios-dos-apps.git $source
-          & "$source/ci-final-fight-x-v0311/build-win64.ps1" -OutputPath "$env:RUNNER_TEMP/FinalFightX.exe"
-          $exe = "$env:RUNNER_TEMP/FinalFightX.exe"
-          if (!(Test-Path $exe)) { throw "FinalFightX.exe rebuild failed" }
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $parts = Get-ChildItem "ci/ffx-v0311-delta.b64.*" | Sort-Object Name
+          if ($parts.Count -ne 11) { throw "Expected 11 delta chunks, found $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $patchBytes = [Convert]::FromBase64String($b64)
+          $patch = Join-Path $env:RUNNER_TEMP "ffx-v0311-delta.xz"
+          [IO.File]::WriteAllBytes($patch, $patchBytes)
+          $patchHash = (Get-FileHash $patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($patchHash -ne "eed29c066de3f391600c7999abd5c68519d37a44c62831c1cfe0ef239c9a6426") { throw "Delta SHA mismatch: $patchHash" }
+
+          $oldExe = "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10/FinalFightX.exe"
+          $newExe = Join-Path $env:RUNNER_TEMP "FinalFightX.exe"
+          python "ci/rebuild_ffx311.py" $oldExe $patch $newExe
+          if ($LASTEXITCODE -ne 0) { throw "Delta reconstruction failed" }
+
+          $hash = (Get-FileHash $newExe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne "d2d7e503b1c9c5689fd615afd89151117919e209908aa77355b9fff2ce1f3515") { throw "Unexpected rebuilt EXE hash: $hash" }
+          $size = (Get-Item $newExe).Length
+          if ($size -ne 650240) { throw "Unexpected rebuilt EXE size: $size" }
+          Write-Host "Verified FinalFightX.exe size=$size SHA256=$hash"
+
       - name: Assemble portable v0.3.11
         shell: pwsh
         run: |
@@ -37,17 +50,29 @@ jobs:
           if (Test-Path "$new/assets") { Remove-Item "$new/assets" -Recurse -Force }
           Copy-Item "$old/assets" "$new/assets" -Recurse
           Copy-Item "$env:RUNNER_TEMP/FinalFightX.exe" "$new/FinalFightX.exe" -Force
+
+          @(
+            "FinalFightX.exe  SHA-256",
+            "d2d7e503b1c9c5689fd615afd89151117919e209908aa77355b9fff2ce1f3515"
+          ) | Set-Content "$new/SHA256.txt" -Encoding UTF8
+
+          $assetCount = (Get-ChildItem "$new/assets" -File -Recurse).Count
+          if ($assetCount -lt 1700) { throw "Portable assets incomplete: $assetCount files" }
+
           $zip = "$new.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $new -DestinationPath $zip -CompressionLevel Optimal
-          if ((Get-Item $zip).Length -lt 10000000) { throw "Portable ZIP looks incomplete" }
-          Get-FileHash $zip -Algorithm SHA256 | Format-List
+          $zipSize = (Get-Item $zip).Length
+          if ($zipSize -lt 10000000) { throw "Portable ZIP looks incomplete: $zipSize bytes" }
+          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Portable assets=$assetCount ZIP=$zipSize SHA256=$zipHash"
 
-      - name: Commit published update
+      - name: Commit published update and clean staging
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "Final-Fight-X-Native-Portable-Windows-x64-v0.3.11" "Final-Fight-X-Native-Portable-Windows-x64-v0.3.11.zip"
+          git rm "ci/ffx-v0311-delta.b64.*" "ci/rebuild_ffx311.py"
           git commit -m "Publish Final Fight X Native v0.3.11 GPU Graphics"
           git push origin main
