@@ -1,0 +1,119 @@
+name: Build Final Fight X v0.3.22
+
+on:
+  push:
+    branches:
+      - build-ffx-v0322
+    paths:
+      - ".github/workflows/build-final-fight-x-v0322.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct v0.3.20 source base
+        shell: pwsh
+        run: |
+          $chunks = Get-ChildItem "ci/v0320/ffx-v0320-src.b64.*" | Sort-Object Name
+          if ($chunks.Count -ne 7) { throw "Expected 7 v0.3.20 source chunks, found $($chunks.Count)" }
+          $b64 = ($chunks | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $zip = Join-Path $env:RUNNER_TEMP "ffx-v0320-src.zip"
+          [IO.File]::WriteAllBytes($zip, [Convert]::FromBase64String($b64))
+          $src = Join-Path $env:RUNNER_TEMP "ffx-v0322-src"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $src -Force
+          "FFX_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Apply v0.3.22 structural fix
+        shell: pwsh
+        run: |
+          $chunks = Get-ChildItem "ci/v0322/ffx-v0322.patch.b64.*" | Sort-Object Name
+          if ($chunks.Count -ne 3) { throw "Expected 3 v0.3.22 patch chunks, found $($chunks.Count)" }
+          $b64 = ($chunks | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $patch = Join-Path $env:RUNNER_TEMP "ffx-v0322.patch"
+          [IO.File]::WriteAllBytes($patch, [Convert]::FromBase64String($b64))
+
+          git -C "$env:FFX_SRC" init
+          git -C "$env:FFX_SRC" add -A
+          git -C "$env:FFX_SRC" -c user.name=CI -c user.email=ci@example.invalid commit -m "base v0.3.20"
+          git -C "$env:FFX_SRC" apply --check --exclude=CMakeLists.txt "$patch"
+          git -C "$env:FFX_SRC" apply --exclude=CMakeLists.txt "$patch"
+
+          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
+          $c = Get-Content $cmakePath -Raw
+          $c = $c.Replace('project(FinalFightXNative VERSION 0.3.20 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.22 LANGUAGES CXX)')
+          $needle = "target_include_directories(ffx_data PUBLIC src)"
+          $addition = @(
+            $needle,
+            "",
+            "add_executable(ffx_stage1_entry_validate tests/stage1_entry_validator.cpp)",
+            "target_link_libraries(ffx_stage1_entry_validate PRIVATE ffx_data)",
+            "target_include_directories(ffx_stage1_entry_validate PRIVATE src)"
+          ) -join [Environment]::NewLine
+          if (-not $c.Contains($needle)) { throw "CMake insertion point missing" }
+          $c = $c.Replace($needle,$addition)
+          Set-Content $cmakePath $c -Encoding UTF8
+
+          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
+          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.h") -Raw
+          $sem = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorSemantics.h") -Raw
+          if (-not $game.Contains("openBorArenaEntryIntent")) { throw "Arena entry fix missing" }
+          if (-not $game.Contains("openBorTerrainContainsPoint")) { throw "Trapezoid collision fix missing" }
+          if (-not $data.Contains("upperLeft") -or -not $data.Contains("lowerRight")) { throw "Wall corners not preserved" }
+          if (-not $sem.Contains("openBorTerrainSpanAtZ")) { throw "Terrain interpolation helper missing" }
+          if (!(Test-Path (Join-Path $env:FFX_SRC "tests\stage1_entry_validator.cpp"))) { throw "Stage 1 validator missing" }
+
+      - name: Configure x64
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP "ffx-v0322-build"
+          cmake -S "$env:FFX_SRC" -B "$build" -A x64
+          "FFX_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build Release and targeted validator
+        shell: pwsh
+        run: |
+          cmake --build "$env:FFX_BUILD" --config Release --target FinalFightX ffx_stage1_entry_validate -- /m
+          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
+          if (!(Test-Path $exe)) { throw "FinalFightX.exe not generated" }
+
+      - name: Run phase 1 regression
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP "ffx-stage1-fixture"
+          $levelDir = Join-Path $fixture "levels\ff64th"
+          New-Item -ItemType Directory -Force -Path $levelDir | Out-Null
+
+          $sourceLevel = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data\levels\ff64th\64th.1.txt"
+          if (!(Test-Path $sourceLevel)) { throw "Phase 1 source level missing" }
+          Copy-Item $sourceLevel (Join-Path $levelDir "64th.1.txt") -Force
+
+          Set-Content (Join-Path $fixture "models.txt") "load dummy data/dummy.txt" -Encoding ASCII
+          Set-Content (Join-Path $fixture "dummy.txt") "name dummy" -Encoding ASCII
+          Set-Content (Join-Path $fixture "levels.txt") @("z 180 240 160","file data/levels/ff64th/64th.1.txt") -Encoding ASCII
+
+          & (Join-Path $env:FFX_BUILD "Release\ffx_stage1_entry_validate.exe") "$fixture"
+          if ($LASTEXITCODE -ne 0) { throw "Phase 1 entry validator failed" }
+
+      - name: Report executable
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $exe).Length
+          Write-Host "Built FinalFightX.exe size=$size SHA256=$hash"
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-v0.3.22-Windows-x64-exe
+          path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
+          if-no-files-found: error
+          retention-days: 1
