@@ -1,4 +1,4 @@
-name: Build Final Fight X v0.3.23\n# python-newline-fix
+name: Build Final Fight X v0.3.23\n# python-header-normalized
 
 on:
   push:
