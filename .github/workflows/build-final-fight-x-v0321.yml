@@ -1,0 +1,88 @@
+name: Build Final Fight X v0.3.21
+
+on:
+  push:
+    branches:
+      - build-ffx-v0321
+    paths:
+      - ".github/workflows/build-final-fight-x-v0321.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct v0.3.20 source base
+        shell: pwsh
+        run: |
+          $chunks = Get-ChildItem "ci/v0320/ffx-v0320-src.b64.*" | Sort-Object Name
+          if ($chunks.Count -ne 7) { throw "Expected 7 source chunks, found $($chunks.Count)" }
+          $b64 = ($chunks | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $zip = Join-Path $env:RUNNER_TEMP "ffx-v0321-src.zip"
+          [IO.File]::WriteAllBytes($zip, [Convert]::FromBase64String($b64))
+          $src = Join-Path $env:RUNNER_TEMP "ffx-v0321-src"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $src -Force
+          "FFX_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Apply v0.3.21 off-screen enemy fix
+        shell: pwsh
+        run: |
+          $game = Join-Path $env:FFX_SRC "src\Game.cpp"
+          $s = Get-Content $game -Raw
+          $old = 'if(desiredX||desiredZ)setAnim(a,"walk",false);else setAnim(a,"idle",false);a.z=clampf(a.z,level_.zMin,level_.zMax);}'
+          $new = @'
+          if(desiredX||desiredZ)setAnim(a,"walk",false);else setAnim(a,"idle",false);
+              // OpenBOR stages may intentionally spawn enemies slightly outside the playable Z band
+              // so they can walk around scenery before entering the arena. Hard-clamping to zMin/zMax
+              // can teleport an off-screen spawn inside a wall and leave it permanently unreachable.
+              constexpr float kEnemyDepthEntryMargin=64.f;
+              a.z=clampf(a.z,level_.zMin-kEnemyDepthEntryMargin,level_.zMax+kEnemyDepthEntryMargin);}
+          '@
+          if (-not $s.Contains($old)) { throw "Enemy clamp target not found" }
+          $s = $s.Replace($old,$new.Trim())
+          $s = $s.Replace('NATIVE PORT v0.3.20','NATIVE PORT v0.3.21')
+          Set-Content $game $s -Encoding UTF8
+
+          $main = Join-Path $env:FFX_SRC "src\main_win.cpp"
+          $m = (Get-Content $main -Raw).Replace('v0.3.20','v0.3.21')
+          Set-Content $main $m -Encoding UTF8
+
+          $cmake = Join-Path $env:FFX_SRC "CMakeLists.txt"
+          $c = (Get-Content $cmake -Raw).Replace('VERSION 0.3.20','VERSION 0.3.21')
+          Set-Content $cmake $c -Encoding UTF8
+
+          $check = Get-Content $game -Raw
+          if (-not $check.Contains('kEnemyDepthEntryMargin=64.f')) { throw "v0.3.21 fix was not applied" }
+          if ($check.Substring($check.IndexOf('void Game::updateEnemy'),$check.IndexOf('void Game::updateProjectile')-$check.IndexOf('void Game::updateEnemy')).Contains('a.z=clampf(a.z,level_.zMin,level_.zMax);')) { throw "Legacy enemy depth clamp still present" }
+
+      - name: Configure x64
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP "ffx-v0321-build"
+          cmake -S "$env:FFX_SRC" -B "$build" -A x64
+          "FFX_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          cmake --build "$env:FFX_BUILD" --config Release --target FinalFightX -- /m
+          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
+          if (!(Test-Path $exe)) { throw "FinalFightX.exe not generated" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $exe).Length
+          Write-Host "Built FinalFightX.exe size=$size SHA256=$hash"
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-v0.3.21-Windows-x64-exe
+          path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
+          if-no-files-found: error
+          retention-days: 1
