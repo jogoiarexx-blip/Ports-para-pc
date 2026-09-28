@@ -1,5 +1,4 @@
 from pathlib import Path
-from PIL import Image
 import sys
 
 root=Path(sys.argv[1]) if len(sys.argv)>1 else Path(".")
@@ -39,7 +38,7 @@ def inside(w,x,z):
 def safe_stage(idx,view,pi):
     rel,zmin,zmax=entries[idx-1]
     direction,walls,panel=parse(rel)
-    ww=Image.open(data/panel).size[0]
+    with open(data/panel,'rb') as fh:\n        hdr=fh.read(10)\n    if len(hdr)<10 or hdr[:3]!=b'GIF': raise SystemExit(f'bad gif: {panel}')\n    ww=int.from_bytes(hdr[6:8],'little')
     reverse=direction in ("left","leftright")
     camera=max(0,ww-view) if reverse else 0
     x=camera+(250-pi*24 if reverse else 70+pi*24)
