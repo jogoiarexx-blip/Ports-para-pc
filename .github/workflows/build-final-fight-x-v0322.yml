@@ -87,12 +87,19 @@ jobs:
       - name: Run phase 1 regression
         shell: pwsh
         run: |
-          $data = Join-Path $env:FFX_SRC "assets\data"
-          if (!(Test-Path $data)) {
-            $data = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data"
-          }
-          if (!(Test-Path $data)) { throw "Game data not available for phase 1 validator" }
-          & (Join-Path $env:FFX_BUILD "Release\ffx_stage1_entry_validate.exe") "$data"
+          $fixture = Join-Path $env:RUNNER_TEMP "ffx-stage1-fixture"
+          $levelDir = Join-Path $fixture "levels\ff64th"
+          New-Item -ItemType Directory -Force -Path $levelDir | Out-Null
+
+          $sourceLevel = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data\levels\ff64th\64th.1.txt"
+          if (!(Test-Path $sourceLevel)) { throw "Phase 1 source level missing" }
+          Copy-Item $sourceLevel (Join-Path $levelDir "64th.1.txt") -Force
+
+          Set-Content (Join-Path $fixture "models.txt") "load dummy data/dummy.txt" -Encoding ASCII
+          Set-Content (Join-Path $fixture "dummy.txt") "name dummy" -Encoding ASCII
+          Set-Content (Join-Path $fixture "levels.txt") @("z 180 240 160","file data/levels/ff64th/64th.1.txt") -Encoding ASCII
+
+          & (Join-Path $env:FFX_BUILD "Release\ffx_stage1_entry_validate.exe") "$fixture"
           if ($LASTEXITCODE -ne 0) { throw "Phase 1 entry validator failed" }
 
       - name: Report executable
