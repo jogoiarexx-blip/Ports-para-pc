@@ -25,6 +25,11 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --test-dir build-win64 -C Release --output-on-failure
+      - name: Generated runtime smoke build
+        shell: pwsh
+        run: |
+          & build-win64/Release/openbor-native-builder.exe build builder/tests/fixtures/side_scroll generated-win64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package
         shell: pwsh
         run: |
