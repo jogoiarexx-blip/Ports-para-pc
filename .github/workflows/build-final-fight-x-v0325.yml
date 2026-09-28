@@ -79,7 +79,7 @@ jobs:
           if (-not $game.Contains("findSafePlayerSpawnPoint")) { throw "safe spawn helper missing" }
           if (-not $game.Contains("playerSpawnBlockedByTerrain")) { throw "terrain spawn check missing" }
           if (-not $game.Contains("rawX=cameraX_")) { throw "load/respawn safe spawn not wired" }
-          if (-not $game.Contains("Mode{Scene,StageComplete")) { throw "v0.3.24 flow fix lost" }
+          if (-not $gameh.Contains("Mode{Scene,StageComplete")) { throw "v0.3.24 flow fix lost" }
           if (-not $game.Contains("openBorArenaEntryIntent")) { throw "v0.3.22 enemy entry fix lost" }
           if (-not $game.Contains("Legacy absolute mode")) { throw "v0.3.23 HUD fix lost" }
 
