@@ -50,15 +50,15 @@ jobs:
           $c = Get-Content $cmakePath -Raw
           $c = $c.Replace('project(FinalFightXNative VERSION 0.3.20 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.22 LANGUAGES CXX)')
           $needle = "target_include_directories(ffx_data PUBLIC src)"
-          $addition = @'
-target_include_directories(ffx_data PUBLIC src)
-
-add_executable(ffx_stage1_entry_validate tests/stage1_entry_validator.cpp)
-target_link_libraries(ffx_stage1_entry_validate PRIVATE ffx_data)
-target_include_directories(ffx_stage1_entry_validate PRIVATE src)
-'@
+          $addition = @(
+            $needle,
+            "",
+            "add_executable(ffx_stage1_entry_validate tests/stage1_entry_validator.cpp)",
+            "target_link_libraries(ffx_stage1_entry_validate PRIVATE ffx_data)",
+            "target_include_directories(ffx_stage1_entry_validate PRIVATE src)"
+          ) -join [Environment]::NewLine
           if (-not $c.Contains($needle)) { throw "CMake insertion point missing" }
-          $c = $c.Replace($needle,$addition.TrimEnd())
+          $c = $c.Replace($needle,$addition)
           Set-Content $cmakePath $c -Encoding UTF8
 
           $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
