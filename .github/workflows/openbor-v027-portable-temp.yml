@@ -3,7 +3,7 @@ name: OpenBOR Builder v0.27 Portable Win64
 on:
   push:
     branches:
-      - ci-openbor-v026-portable-win64
+      - ci-openbor-v027-final-win64
   workflow_dispatch:
 
 jobs:
@@ -16,6 +16,43 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path builder | Out-Null
           Expand-Archive -LiteralPath ci-openbor-v027/source.zip -DestinationPath builder -Force
+      - name: Patch Win32 external process launcher
+        shell: pwsh
+        run: |
+          $mainPath = 'builder/src/main.cpp'
+          $source = Get-Content -LiteralPath $mainPath -Raw
+          $pattern = '(?s)static int runCommand\(const std::string& command\) \{\r?\n.*?\r?\n\}\r?\n\r?\nstatic std::filesystem::path findCMakeProgram'
+          $replacement = @'
+          static int runCommand(const std::string& command) {
+              std::cout << "> " << command << "\n";
+          #ifdef _WIN32
+              int count=MultiByteToWideChar(CP_ACP,0,command.c_str(),-1,nullptr,0);
+              if(count<=0) return 9009;
+              std::wstring wide(static_cast<std::size_t>(count),L'\0');
+              MultiByteToWideChar(CP_ACP,0,command.c_str(),-1,wide.data(),count);
+              std::vector<wchar_t> commandLine(wide.begin(),wide.end());
+              STARTUPINFOW startup{}; startup.cb=sizeof(startup);
+              PROCESS_INFORMATION process{};
+              if(!CreateProcessW(nullptr,commandLine.data(),nullptr,nullptr,FALSE,0,nullptr,nullptr,&startup,&process)) {
+                  std::cerr << "Erro iniciando processo externo (Win32=" << GetLastError() << ")\n";
+                  return 9009;
+              }
+              WaitForSingleObject(process.hProcess,INFINITE);
+              DWORD exitCode=1;
+              GetExitCodeProcess(process.hProcess,&exitCode);
+              CloseHandle(process.hThread);
+              CloseHandle(process.hProcess);
+              return static_cast<int>(exitCode);
+          #else
+              return std::system(command.c_str());
+          #endif
+          }
+
+          static std::filesystem::path findCMakeProgram
+          '@
+          $patched = [regex]::Replace($source, $pattern, $replacement, 1)
+          if ($patched -eq $source) { throw 'runCommand patch was not applied' }
+          [System.IO.File]::WriteAllText($mainPath, $patched, [System.Text.UTF8Encoding]::new($false))
       - name: Configure
         shell: pwsh
         run: cmake -S builder -B build-win64 -A x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
