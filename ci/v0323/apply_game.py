@@ -26,7 +26,7 @@ void Game::advanceSceneStep(){sceneVisual_.clear();sceneStepTime_=0;sceneX_=scen
 void Game::updateScene(float dt){auto in=input_.state(0);if(in.backPressed){sceneVisual_.clear();if(sceneAfterMode_==Mode::Title){enterTitle();return;}mode_=sceneAfterMode_;return;}if(sceneVisual_.empty()){advanceSceneStep();return;}sceneStepTime_+=dt;float d=renderer_.animationDuration(sceneVisual_);if(d<=.11f)d=1.5f;const bool userSkip=in.startPressed&&sceneSkip_&&!sceneNoSkip_;if(userSkip||sceneStepTime_>=d)advanceSceneStep();}'''
 if old not in s: raise SystemExit('scene runtime block missing')
 s=s.replace(old,new,1)
-start=s.index('void Game::drawHud(){'); end=s.index('\\n\\n\\nvoid Game::drawGameplay()',start)
+start=s.index('void Game::drawHud(){'); end=s.index('void Game::drawGameplay()',start)
 newhud=Path('ci/v0323/hud_function.txt').read_text()
 s=s[:start]+newhud+s[end:]
 s=s.replace('renderer_.drawAnimatedImage(sceneVisual_,sceneStepTime_,0,-2,false)','renderer_.drawAnimatedImage(sceneVisual_,sceneStepTime_,(float)sceneX_,(float)sceneY_,false)',1)
