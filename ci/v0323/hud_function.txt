@@ -1,0 +1,68 @@
+void Game::drawHud(){
+    const auto& hud=db_.campaign().hud;
+    const int bw=std::max(1,hud.lifeBarWidth),bh=std::max(1,hud.lifeBarHeight);
+    auto color=[](const HudColor& c){return D2D1::ColorF(c.r/255.f,c.g/255.f,c.b/255.f);};
+    auto visible=[&](const HudPoint& p){return p.x>=0&&p.y>=0&&p.x<(int)renderer_.logicalWidth()&&p.y<240;};
+    auto colorForAbsolute=[&](int value){
+        for(const auto& [limit,c]:hud.lifePalette.colors)if(value<=limit)return color(c);
+        return color(hud.lifePalette.whitebox);
+    };
+    auto colorForRatio=[&](float ratio){
+        int key=ratio<=.20f?25:ratio<=.40f?50:ratio<=.60f?100:ratio<=.80f?200:300;
+        auto it=hud.lifePalette.colors.find(key);return it==hud.lifePalette.colors.end()?D2D1::ColorF(1,1,1):color(it->second);
+    };
+    auto meter=[&](const HudPoint& pos,int hp,int maxHp){
+        if(!visible(pos))return;
+        const float x=(float)pos.x,y=(float)pos.y,w=(float)bw,h=(float)bh;
+        if(!hud.lifeBarNoBorder){
+            renderer_.fillRect(x-2,y-2,w+4,h+4,color(hud.lifePalette.blackbox),1.f);
+            renderer_.fillRect(x-1,y-1,w+2,h+2,color(hud.lifePalette.whitebox),1.f);
+        }
+        auto bgIt=hud.lifePalette.colors.find(500);
+        renderer_.fillRect(x,y,w,h,bgIt==hud.lifePalette.colors.end()?D2D1::ColorF(.15f,.15f,.15f):color(bgIt->second),.45f);
+        hp=std::max(0,hp);maxHp=std::max(1,maxHp);
+        if(hud.lifeBarType==1){
+            float ratio=clampf((float)hp/(float)maxHp,0.f,1.f);
+            float fill=hud.lifeBarOrientation?ratio*h:ratio*w;
+            if(fill>0){
+                auto c=colorForRatio(ratio);
+                if(hud.lifeBarOrientation)renderer_.fillRect(x,y+h-fill,w,fill,c,1.f);
+                else renderer_.fillRect(x,y,fill,h,c,1.f);
+            }
+            return;
+        }
+        // Legacy absolute mode: 1 HP = 1 pixel and values above width wrap/overlay.
+        int remaining=hp,layer=0;
+        while(remaining>0&&layer<64){
+            int segment=std::min(bw,remaining);
+            int represented=std::min(hp,(layer+1)*bw);
+            auto c=colorForAbsolute(represented);
+            if(hud.lifeBarOrientation){float fill=(float)std::min(bh,segment);renderer_.fillRect(x,y+h-fill,w,fill,c,1.f);}
+            else renderer_.fillRect(x,y,(float)segment,h,c,1.f);
+            remaining-=segment;++layer;
+        }
+    };
+    auto hudText=[&](const std::wstring& text,const HudPoint& p,float size=6.f){if(visible(p)&&!text.empty())renderer_.text(text,(float)p.x,(float)p.y,size,D2D1::ColorF(1,1,1));};
+
+    for(size_t i=0;i<slots_.size();++i){
+        if(!slots_[i].joined)continue;
+        auto p=player(i);const auto& h=hud.players[i];
+        if(p&&p->def&&!p->def->icon.empty()&&visible(h.icon))renderer_.drawImage(p->def->icon,(float)h.icon.x,(float)h.icon.y);
+        if(p)meter(h.life,p->hp,p->maxHp);
+        hudText(std::to_wstring(std::max(0,slots_[i].lives)),h.lives,6.f);
+        if(p&&p->def)hudText(w(p->def->name),h.score.name,6.f);
+        hudText(L"-",h.score.dash,6.f);
+        hudText(std::to_wstring(slots_[i].score),h.score.score,6.f);
+
+        const Actor* target=slots_[i].hudTargetId?actorById(slots_[i].hudTargetId):nullptr;
+        if(target&&target->def&&!target->def->noLife){
+            meter(h.enemyLife,target->hp,target->maxHp);
+            if(!target->def->icon.empty()&&visible(h.enemyIcon))renderer_.drawImage(target->def->icon,(float)h.enemyIcon.x,(float)h.enemyIcon.y);
+            hudText(w(target->def->name),h.enemyName,5.5f);
+        }
+    }
+    if(!level_.noTime){
+        if(!hud.timeIcon.empty())renderer_.drawImage(hud.timeIcon,(float)hud.timeIconX,(float)hud.timeIconY);
+        HudPoint time{hud.timeLoc[0],hud.timeLoc[1]};hudText(std::to_wstring((int)std::ceil(stageTime_)),time,7.f);
+    }
+}
