@@ -1,4 +1,4 @@
-name: Build Final Fight X v0.3.23\n# python-header-normalized
+name: Build Final Fight X v0.3.23\n# scene-state-fix
 
 on:
   push:
