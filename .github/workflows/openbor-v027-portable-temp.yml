@@ -1,0 +1,53 @@
+name: OpenBOR Builder v0.27 Portable Win64
+
+on:
+  push:
+    branches:
+      - ci-openbor-v026-portable-win64
+  workflow_dispatch:
+
+jobs:
+  build-portable:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path builder | Out-Null
+          Expand-Archive -LiteralPath ci-openbor-v027/source.zip -DestinationPath builder -Force
+      - name: Configure
+        shell: pwsh
+        run: cmake -S builder -B build-win64 -A x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-win64 --config Release --target openbor-native-builder --parallel
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir build-win64 -C Release --output-on-failure
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item build-win64/Release/openbor-native-builder.exe portable/OpenBOR-Native-Builder.exe
+          Copy-Item builder/README.md portable/README.md
+          Copy-Item builder/CHANGELOG.md portable/CHANGELOG.md
+          @"
+          OpenBOR Native Builder v0.27.0 - Portable Windows x64
+
+          Novidades principais:
+          - scene/animation -> cutscene nativa temporizada
+          - bossmusic
+          - water
+          - shadow/diesound
+          - lifespan/landframe/offscreenkill
+          - defense por tipo de ataque
+          - blast/burn reaction bridge
+          "@ | Set-Content -Encoding UTF8 portable/LEIA-ME-PORTATIL.txt
+          (Get-FileHash portable/OpenBOR-Native-Builder.exe -Algorithm SHA256).Hash | Set-Content -Encoding ASCII portable/SHA256-EXE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenBOR-Native-Builder-v0.27.0-Portable-Windows-x64
+          path: portable/
+          if-no-files-found: error
+          compression-level: 9
