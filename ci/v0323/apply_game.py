@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path\nimport os
 p=Path('src/Game.h'); s=p.read_text()
 s=s.replace('int actorId=0,selected=0,paletteMap=0,lives=0,score=0,nextLifeScore=30000,nextCreditScore=999999;','int actorId=0,selected=0,paletteMap=0,lives=0,score=0,nextLifeScore=30000,nextCreditScore=999999,hudTargetId=0;',1)
 s=s.replace('std::string sceneVisual_;\\n    float sceneStepTime_=0;','std::string sceneVisual_;\\n    float sceneStepTime_=0;\\n    int sceneX_=0,sceneY_=0;\\n    bool sceneSkip_=false,sceneNoSkip_=false;',1)
@@ -27,7 +27,7 @@ void Game::updateScene(float dt){auto in=input_.state(0);if(in.backPressed){scen
 if old not in s: raise SystemExit('scene runtime block missing')
 s=s.replace(old,new,1)
 start=s.index('void Game::drawHud(){'); end=s.index('void Game::drawGameplay()',start)
-newhud=Path('ci/v0323/hud_function.txt').read_text()
+newhud=(Path(os.environ['GITHUB_WORKSPACE'])/'ci'/'v0323'/'hud_function.txt').read_text()
 s=s[:start]+newhud+s[end:]
 s=s.replace('renderer_.drawAnimatedImage(sceneVisual_,sceneStepTime_,0,-2,false)','renderer_.drawAnimatedImage(sceneVisual_,sceneStepTime_,(float)sceneX_,(float)sceneY_,false)',1)
 p.write_text(s)
