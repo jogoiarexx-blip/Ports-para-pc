@@ -76,6 +76,7 @@ jobs:
           Pop-Location
 
           $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
+          $gameh = Get-Content (Join-Path $env:FFX_SRC "src\Game.h") -Raw
           if (-not $game.Contains("findSafePlayerSpawnPoint")) { throw "safe spawn helper missing" }
           if (-not $game.Contains("playerSpawnBlockedByTerrain")) { throw "terrain spawn check missing" }
           if (-not $game.Contains("rawX=cameraX_")) { throw "load/respawn safe spawn not wired" }
