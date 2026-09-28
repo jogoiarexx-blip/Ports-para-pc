@@ -2,7 +2,14 @@ from pathlib import Path
 import os
 p=Path('src/Game.h'); s=p.read_text()
 s=s.replace('int actorId=0,selected=0,paletteMap=0,lives=0,score=0,nextLifeScore=30000,nextCreditScore=999999;','int actorId=0,selected=0,paletteMap=0,lives=0,score=0,nextLifeScore=30000,nextCreditScore=999999,hudTargetId=0;',1)
-s=s.replace('std::string sceneVisual_;\\n    float sceneStepTime_=0;','std::string sceneVisual_;\\n    float sceneStepTime_=0;\\n    int sceneX_=0,sceneY_=0;\\n    bool sceneSkip_=false,sceneNoSkip_=false;',1)
+old_scene="""std::string sceneVisual_;
+    float sceneStepTime_=0;"""
+new_scene="""std::string sceneVisual_;
+    float sceneStepTime_=0;
+    int sceneX_=0,sceneY_=0;
+    bool sceneSkip_=false,sceneNoSkip_=false;"""
+if old_scene not in s: raise SystemExit('scene state marker missing in Game.h')
+s=s.replace(old_scene,new_scene,1)
 p.write_text(s)
 
 p=Path('src/Game.cpp'); s=p.read_text()
