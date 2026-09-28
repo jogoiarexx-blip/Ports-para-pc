@@ -1,4 +1,4 @@
-name: Build Final Fight X v0.3.23\n# hud-marker-fix
+name: Build Final Fight X v0.3.23\n# hud-source-path-fix
 
 on:
   push:
