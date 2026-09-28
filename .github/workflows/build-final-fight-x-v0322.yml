@@ -1,4 +1,4 @@
-name: Build Final Fight X v0.3.22
+name: Build Final Fight X v0.3.22\n# payload-integrity-fix
 
 on:
   push:
