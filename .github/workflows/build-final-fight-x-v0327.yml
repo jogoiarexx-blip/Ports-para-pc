@@ -176,6 +176,21 @@ jobs:
           $size = (Get-Item $exe).Length
           Write-Host "Built FinalFightX.exe size=$size SHA256=$hash"
 
+      - name: Archive reconstructed source
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.27-source.zip"
+          Compress-Archive -Path "$env:FFX_SRC\*" -DestinationPath $zip -Force
+          "FFX_SOURCE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-v0.3.27-source
+          path: ${{ env.FFX_SOURCE_ZIP }}
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
