@@ -1,6 +1,6 @@
 # v0.3.28 legacy fidelity + v0.3.27 combat/grab
 name: Build Final Fight X v0.3.28
-# scoped-validator-rerun
+# blast-fidelity-rerun
 
 on:
   push:
@@ -110,6 +110,8 @@ jobs:
           Push-Location "$env:FFX_SRC"
           python "$env:GITHUB_WORKSPACE\ci\v0327\apply_combat_grab.py"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.27 combat/grab patch failed" }
+          python "$env:GITHUB_WORKSPACE\ci\v0327\apply_attackone_fix.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.27 attackone/dropv patch failed" }
 
           $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
           $cm = Get-Content $cmakePath -Raw
@@ -132,6 +134,8 @@ jobs:
           Push-Location "$env:FFX_SRC"
           python "$env:GITHUB_WORKSPACE\ci\v0328\apply_fidelity.py"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.28 fidelity patch failed" }
+          python "$env:GITHUB_WORKSPACE\ci\v0328\apply_blast.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.28 blast patch failed" }
 
           $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
           $cm = Get-Content $cmakePath -Raw
@@ -152,6 +156,11 @@ jobs:
           if (-not $game.Contains('hudText(L"PRESS START",h.join.prompt')) { throw "in-game join prompt missing" }
           if (-not $game.Contains("const bool contactOnly=raw==0")) { throw "v0.3.27 zero-force semantics lost" }
           if (-not $game.Contains("heldTarget&&f->attack.knockdown>0")) { throw "v0.3.27 grab release semantics lost" }
+          if (-not $datah.Contains("bool blast=false;")) { throw "damageonlanding blast state missing" }
+          if (-not $data.Contains("atk.blast=t.size()>2?toInt(t[2])!=0:false;")) { throw "damageonlanding blast parser missing" }
+          if (-not $game.Contains("if(att.fallingState&&!att.blastActive)continue;")) { throw "non-blast fall attack gate missing" }
+          if (-not $game.Contains("indirectOwner=att.blastActive?actorById(att.blastOwner):nullptr")) { throw "blast indirect damage missing" }
+          if (-not $game.Contains("if(realImpact&&att.player&&att.weaponNumber>0")) { throw "zero-force weapon durability guard missing" }
 
       - name: Validate v0.3.28 legacy fidelity
         shell: pwsh
@@ -159,6 +168,13 @@ jobs:
           $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
           python "ci\v0328\validate_fidelity.py" "$env:FFX_SRC" "$portable"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.28 fidelity validator failed" }
+
+      - name: Validate v0.3.28 blast semantics
+        shell: pwsh
+        run: |
+          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
+          python "ci\v0328\validate_blast.py" "$env:FFX_SRC" "$portable"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.28 blast validator failed" }
 
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
