@@ -1,6 +1,6 @@
 # corrected zero-force/grab semantics
 name: Build Final Fight X v0.3.27
-# scoped-validator-rerun
+# attackone-target-rerun
 
 on:
   push:
@@ -110,6 +110,8 @@ jobs:
           Push-Location "$env:FFX_SRC"
           python "$env:GITHUB_WORKSPACE\ci\v0327\apply_combat_grab.py"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.27 combat/grab patch failed" }
+          python "$env:GITHUB_WORKSPACE\ci\v0327\apply_attackone_fix.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.27 attackone/dropv patch failed" }
 
           $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
           $cm = Get-Content $cmakePath -Raw
@@ -125,6 +127,12 @@ jobs:
           if (-not $game.Contains("if(f->attack.damage>0||f->attack.knockdown>0)t.hitInvincibleTime")) { throw "zero-force invulnerability guard missing" }
           if (-not $game.Contains("heldTarget&&f->attack.knockdown>0")) { throw "authored throw release missing" }
           if (-not $game.Contains('starts(a.anim,"follow")')) { throw "player follow state missing" }
+          if ($game.Contains("attackOneConsumed")) { throw "legacy one-hit attackone gate remains" }
+          if (-not $game.Contains("attackOneTarget")) { throw "attackone target lock missing" }
+          if (-not $game.Contains("att.attackOneTarget=followTarget")) { throw "follow target inheritance missing" }
+          if (-not $game.Contains("t.va=3.f*42.f")) { throw "OpenBOR default dropv Y missing" }
+          if (-not $game.Contains("t.vx=dir*1.2f*42.f")) { throw "OpenBOR default dropv X missing" }
+          if (-not $data.Contains('lower(t[1])=="all")e.defenseAll=t.size()>2?toFloat(t[2],1.f):1.f')) { throw "bare defense all not recognized" }
 
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
