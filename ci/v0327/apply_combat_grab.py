@@ -5,19 +5,16 @@ def rep(s, old, new, label):
         raise SystemExit(f"missing {label}")
     return s.replace(old,new,1)
 
-# Parser: legacy argumentless "defense all" means zero damage factor.
-p=Path("src/OpenBorData.cpp")
-s=p.read_text()
-s=rep(
-    s,
-    'else if(cmd=="defense"&&t.size()>1&&lower(t[1])=="all"&&t.size()>2)e.defenseAll=toFloat(t[2],1.f);',
-    'else if(cmd=="defense"&&t.size()>1&&lower(t[1])=="all")e.defenseAll=t.size()>2?toFloat(t[2],0.f):0.f;',
-    "argumentless defense all"
-)
-p.write_text(s)
-
 p=Path("src/Game.cpp")
 s=p.read_text()
+
+# OpenBOR treats a valid zero-force collision box as an active attack window.
+s=rep(
+    s,
+    'const bool attackActive=f->attack.rect.valid&&f->attack.damage>0;',
+    'const bool attackActive=f->attack.rect.valid;',
+    "zero-force attack window"
+)
 
 # The old port released grabforward/backward in enterFrame with hardcoded damage and velocity,
 # before the actual attack box was tested. Let updateCombat resolve the authored attack instead.
@@ -154,7 +151,7 @@ new_combat=r'''void Game::updateCombat(){
                 if(!t.dead)t.a=std::max(platformFloor(t)+2.f,t.a);
             }
 
-            t.hitInvincibleTime=an->fastAttack?.025f:.085f;
+            if(f->attack.damage>0||f->attack.knockdown>0)t.hitInvincibleTime=an->fastAttack?.025f:.085f;
             if(att.player&&att.weaponNumber>0&&att.weaponNumber!=3&&att.weaponUses>0){
                 if(--att.weaponUses<=0)unequipWeapon(att);
             }
