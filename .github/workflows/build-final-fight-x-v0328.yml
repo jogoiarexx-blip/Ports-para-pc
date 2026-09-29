@@ -1,6 +1,6 @@
 # v0.3.28 legacy fidelity + v0.3.27 combat/grab
 name: Build Final Fight X v0.3.28
-# blast-fidelity-rerun
+# blast-fidelity-rerun-2
 
 on:
   push:
