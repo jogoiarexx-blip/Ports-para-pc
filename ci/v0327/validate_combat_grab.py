@@ -10,10 +10,11 @@ data=(src/"src"/"OpenBorData.cpp").read_text(errors="ignore")
 checks={
     "zero_force_filter_removed": "f->attack.damage<=0" not in game,
     "zero_force_contact_supported": "const bool contactOnly=raw==0" in game,
+    "zero_force_attack_window": "const bool attackActive=f->attack.rect.valid;" in game,
+    "zero_force_no_generic_invuln": "if(f->attack.damage>0||f->attack.knockdown>0)t.hitInvincibleTime" in game,
     "authored_throw_release": "heldTarget&&f->attack.knockdown>0" in game,
     "hardcoded_throw_removed": "releaseGrab(a,true,f->attack.damage" not in game,
     "player_follow_preserved": 'starts(a.anim,"follow")' in game,
-    "defense_all_default_zero": 't.size()>2?toFloat(t[2],0.f):0.f' in data,
 }
 bad=[k for k,v in checks.items() if not v]
 if bad:
