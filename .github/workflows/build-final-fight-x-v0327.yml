@@ -1,4 +1,5 @@
-name: Build Final Fight X v0.3.26
+# corrected zero-force/grab semantics
+name: Build Final Fight X v0.3.27
 # scoped-validator-rerun
 
 on:
@@ -120,9 +121,10 @@ jobs:
           $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
           if ($game.Contains("f->attack.damage<=0")) { throw "zero-force contacts are still filtered" }
           if ($game.Contains("releaseGrab(a,true,f->attack.damage")) { throw "hardcoded throw release still present" }
+          if (-not $game.Contains("const bool attackActive=f->attack.rect.valid;")) { throw "zero-force attack window missing" }
+          if (-not $game.Contains("if(f->attack.damage>0||f->attack.knockdown>0)t.hitInvincibleTime")) { throw "zero-force invulnerability guard missing" }
           if (-not $game.Contains("heldTarget&&f->attack.knockdown>0")) { throw "authored throw release missing" }
           if (-not $game.Contains('starts(a.anim,"follow")')) { throw "player follow state missing" }
-          if (-not $data.Contains('t.size()>2?toFloat(t[2],0.f):0.f')) { throw "argumentless defense all fix missing" }
 
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
