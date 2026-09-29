@@ -15,6 +15,10 @@ checks={
     "authored_throw_release": "heldTarget&&f->attack.knockdown>0" in game,
     "hardcoded_throw_removed": "releaseGrab(a,true,f->attack.damage" not in game,
     "player_follow_preserved": 'starts(a.anim,"follow")' in game,
+    "attackone_target_lock": "attackOneTarget" in game and "attackOneConsumed" not in game,
+    "attackone_follow_inherit": "att.attackOneTarget=followTarget" in game,
+    "openbor_default_dropv": "t.va=3.f*42.f" in game and "t.vx=dir*1.2f*42.f" in game,
+    "bare_defense_all_recognized": 'lower(t[1])=="all")e.defenseAll=t.size()>2?toFloat(t[2],1.f):1.f' in data,
 }
 bad=[k for k,v in checks.items() if not v]
 if bad:
@@ -27,6 +31,7 @@ if assets and (assets/"assets"/"data"/"chars").exists():
     follows=[]
     landing=[]
     throw_knock=[]
+    attackone=[]
     for p in root.rglob("*.txt"):
         try: lines=p.read_text(errors="ignore").splitlines()
         except: continue
@@ -40,6 +45,8 @@ if assets and (assets/"assets"/"data"/"chars").exists():
                 defense.append((str(p.relative_to(root)),n))
             if cmd=="followcond" and len(t)>1:
                 follows.append((str(p.relative_to(root)),n,t[1],anim))
+            if cmd=="attackone":
+                attackone.append((str(p.relative_to(root)),n,anim))
             if cmd=="damageonlanding":
                 landing.append(tuple(t[1:]))
             if re.fullmatch(r"attack\d*|burn|shock",cmd) and len(t)>=7:
@@ -54,8 +61,9 @@ if assets and (assets/"assets"/"data"/"chars").exists():
     assert len(defense)==3, defense
     assert len(follows)==5 and all(x[2]=="3" for x in follows), follows
     assert len(landing)==25 and all(x==("0","1") for x in landing), landing
-    assert len(throw_knock)>=12, throw_knock
-    print(f"asset_semantics=OK zero_force={len(zero)} defense_all={len(defense)} followcond={len(follows)} damageonlanding={len(landing)} throw_knock={len(throw_knock)}")
+    assert len(throw_knock)==17, throw_knock
+    assert len(attackone)==7, attackone
+    print(f"asset_semantics=OK zero_force={len(zero)} defense_all={len(defense)} followcond={len(follows)} attackone={len(attackone)} damageonlanding={len(landing)} throw_knock={len(throw_knock)}")
 else:
     print("asset_semantics=SKIP complete character assets unavailable in CI snapshot")
 
