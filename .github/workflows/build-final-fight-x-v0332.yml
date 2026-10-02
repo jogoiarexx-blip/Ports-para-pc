@@ -232,24 +232,7 @@ jobs:
       - name: Apply v0.3.32 PAK fidelity
         shell: pwsh
         run: |
-          $patchB64 = Join-Path $env:GITHUB_WORKSPACE "ci\v0332\ffx-v0332.patch.zlib.b64"
-          $patch = Join-Path $env:RUNNER_TEMP "ffx-v0332.patch"
-          @'
-import os, base64, zlib
-from pathlib import Path
-src=Path(os.environ["FFX_SRC"])
-for rel in ["CMakeLists.txt","src/main_win.cpp","src/OpenBorSemantics.h","src/Game.h","src/Game.cpp"]:
-    p=src/rel
-    text=p.read_text(encoding="utf-8-sig").replace("\r\n","\n")
-    p.write_text(text,encoding="utf-8")
-payload=Path(os.environ["GITHUB_WORKSPACE"])/"ci/v0332/ffx-v0332.patch.zlib.b64"
-out=Path(os.environ["RUNNER_TEMP"])/"ffx-v0332.patch"
-out.write_bytes(zlib.decompress(base64.b64decode(payload.read_text().strip())))
-print("decoded v0.3.32 patch", out.stat().st_size)
-'@ | python -
-          git -C "$env:FFX_SRC" apply --check "$patch"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.32 patch check failed" }
-          git -C "$env:FFX_SRC" apply "$patch"
+          python "ci\v0332\apply_patch.py"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.32 PAK fidelity patch failed" }
 
       - name: Validate v0.3.32 PAK fidelity
