@@ -33,7 +33,7 @@ checks={
  "noatflash-victim-fallback":'resolvedHitFlash=t.def->defaultFlash' in g,
  "flipframe-exact-retained":'pushEvent(cur,"flip",t.size()>1?toInt(t[1]):0)' in d,
 }
-if portable and (portable/"assets/data").exists():
+if portable and (portable/"assets/data/chars").exists():
     data=portable/"assets/data"
     counts={"landframe":0,"flipframe":0,"jumpframe":0,"noatflash":0,"throwframe":0,"blockodds":0,"tossframe":0,"shootframe":0}
     for p in (data/"chars").rglob("*.txt"):
@@ -51,6 +51,8 @@ if portable and (portable/"assets/data").exists():
     checks["pak-tossframe-two"]=counts["tossframe"]==2
     checks["pak-blockodds-two"]=counts["blockodds"]==2
     print("PAK_COUNTS",counts)
+else:
+    print("PAK_COUNTS=SKIP complete PAK character assets unavailable in CI snapshot")
 
 bad=[k for k,v in checks.items() if not v]
 for k,v in checks.items():
