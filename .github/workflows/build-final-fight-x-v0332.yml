@@ -1,6 +1,6 @@
 # v0.3.32 PAK fidelity + cumulative native port fixes
 name: Build Final Fight X v0.3.32
-# scoped-validator-rerun-2
+# scoped-validator-rerun-final
 
 on:
   push:
