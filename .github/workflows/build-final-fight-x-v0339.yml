@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: build-ffx-v0339
 
       - name: Reconstruct v0.3.20 compact source
         shell: pwsh
