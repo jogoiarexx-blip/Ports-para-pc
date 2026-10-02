@@ -9,6 +9,12 @@ on:
     paths:
       - ".github/workflows/build-final-fight-x-v0339.yml"
       - "ci/v0339/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-final-fight-x-v0339.yml"
+      - "ci/v0339/**"
   workflow_dispatch:
 
 permissions:
