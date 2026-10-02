@@ -99,6 +99,7 @@ jobs:
           Write-Host $text
           if ($rc -ne 1) { throw "Unexpected smoke-test exit code: $rc" }
           if ($text -notmatch "OpenBOR Native Builder 0\.34\.17") { throw "Wrong executable version" }
+          exit 0
 
       - name: Create ZIP
         shell: pwsh
