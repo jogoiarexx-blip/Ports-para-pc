@@ -7,7 +7,8 @@ on:
     branches:
       - build-ffx-v0338
     paths:
-      - ".github/workflows/build-final-fight-x-v0337.yml"
+      - ".github/workflows/build-final-fight-x-v0338.yml"
+      - "ci/v0338/**"
   workflow_dispatch:
 
 permissions:
