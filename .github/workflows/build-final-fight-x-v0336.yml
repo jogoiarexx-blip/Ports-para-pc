@@ -409,11 +409,11 @@ jobs:
         run: |
           $test = Join-Path $env:FFX_BUILD "Release\v0335_level_actions_validator.exe"
           $data = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data"
-          if (Test-Path (Join-Path $data "levels.txt")) {
+          if ((Test-Path (Join-Path $data "levels.txt")) -and (Test-Path (Join-Path $data "chars"))) {
             & $test $data
             if ($LASTEXITCODE -ne 0) { throw "v0.3.35 native level queue test failed" }
           } else {
-            Write-Host "v0.3.35 native PAK test skipped: complete assets not stored in repository"
+            Write-Host "v0.3.35 native PAK test skipped: complete character assets not stored in repository"
           }
 
       - name: Run v0.3.36 native transition test
