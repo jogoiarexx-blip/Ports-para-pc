@@ -433,6 +433,33 @@ jobs:
           python "ci\v0341\validate_offscreenkill.py" "$env:FFX_SRC"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.41 offscreenkill validator failed" }
 
+      - name: Forward-port latest main combat fidelity
+        shell: pwsh
+        run: |
+          $dataPath = Join-Path $env:FFX_SRC "src\OpenBorData.cpp"
+          $data = Get-Content $dataPath -Raw
+          $oldDefense = 'else if(cmd=="defense"&&t.size()>1&&lower(t[1])=="all")e.defenseAll=t.size()>2?toFloat(t[2],0.f):0.f;'
+          $compatDefense = 'else if(cmd=="defense"&&t.size()>1&&lower(t[1])=="all"&&t.size()>2)e.defenseAll=toFloat(t[2],1.f);'
+          if (-not $data.Contains($oldDefense)) { throw "v0.3.42 forward defense anchor missing" }
+          $data = $data.Replace($oldDefense,$compatDefense)
+          Set-Content $dataPath $data -Encoding UTF8
+
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0327\apply_attackone_fix.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.42 forward attackone/dropv patch failed" }
+          python "$env:GITHUB_WORKSPACE\ci\v0328\apply_blast.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.42 forward blast patch failed" }
+          Pop-Location
+
+      - name: Validate forward-ported main fidelity
+        shell: pwsh
+        run: |
+          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
+          python "ci\v0327\validate_combat_grab.py" "$env:FFX_SRC" "$portable"
+          if ($LASTEXITCODE -ne 0) { throw "forward v0.3.27 combat validator failed" }
+          python "ci\v0328\validate_blast.py" "$env:FFX_SRC" "$portable"
+          if ($LASTEXITCODE -ne 0) { throw "forward v0.3.28 blast validator failed" }
+
       - name: Apply v0.3.42 UI and scene flow
         shell: pwsh
         run: |
