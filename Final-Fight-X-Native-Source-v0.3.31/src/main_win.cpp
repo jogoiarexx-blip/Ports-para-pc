@@ -1,0 +1,11 @@
+#ifdef _WIN32
+#include "Game.h"
+#include <windows.h>
+#include <chrono>
+#include <algorithm>
+#include <filesystem>
+#include <memory>
+static std::unique_ptr<ffx::Game> g;
+LRESULT CALLBACK WndProc(HWND h,UINT m,WPARAM w,LPARAM l){switch(m){case WM_SIZE:if(g)g->resize(LOWORD(l),HIWORD(l));return 0;case WM_KEYDOWN:if(w==VK_F11){if(g)g->toggleFullscreen();return 0;}break;case WM_SYSKEYDOWN:if(w==VK_RETURN&&(l&(1u<<29))){if(g)g->toggleFullscreen();return 0;}break;case WM_DPICHANGED:{auto*r=reinterpret_cast<RECT*>(l);if(r)SetWindowPos(h,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);return 0;}case WM_DESTROY:PostQuitMessage(0);return 0;case WM_ERASEBKGND:return 1;}return DefWindowProc(h,m,w,l);}
+int WINAPI wWinMain(HINSTANCE hi,HINSTANCE,LPWSTR,int){if(!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))SetProcessDPIAware();WNDCLASSW wc{};wc.lpfnWndProc=WndProc;wc.hInstance=hi;wc.lpszClassName=L"FinalFightXNativeWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);wc.hbrBackground=(HBRUSH)GetStockObject(BLACK_BRUSH);RegisterClassW(&wc);RECT r{0,0,960,720};AdjustWindowRect(&r,WS_OVERLAPPEDWINDOW,FALSE);HWND h=CreateWindowW(wc.lpszClassName,L"Final Fight X - Native C++ Port v0.3.31",WS_OVERLAPPEDWINDOW|WS_VISIBLE,CW_USEDEFAULT,CW_USEDEFAULT,r.right-r.left,r.bottom-r.top,nullptr,nullptr,hi,nullptr);if(!h)return 1;wchar_t path[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);auto dir=std::filesystem::path(path).parent_path();g=std::make_unique<ffx::Game>();if(!g->init(h,dir)){MessageBoxW(h,L"Nao foi possivel carregar assets/data. Mantenha a pasta assets ao lado do executavel.",L"Final Fight X Native",MB_ICONERROR);return 2;}auto last=std::chrono::steady_clock::now();MSG msg{};bool run=true;while(run){while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){if(msg.message==WM_QUIT){run=false;break;}TranslateMessage(&msg);DispatchMessageW(&msg);}auto now=std::chrono::steady_clock::now();if(IsIconic(h)){last=now;Sleep(25);continue;}float dt=std::clamp(std::chrono::duration<float>(now-last).count(),0.f,.10f);last=now;if(g){constexpr float maxStep=1.f/120.f;float remaining=dt;int substeps=0;while(remaining>0.f&&substeps<12){float step=std::min(remaining,maxStep);g->update(step);remaining-=step;++substeps;}g->render();}Sleep(1);}if(g){g->shutdown();g.reset();}return (int)msg.wParam;}
+#endif

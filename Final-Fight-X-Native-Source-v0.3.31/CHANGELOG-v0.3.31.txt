@@ -1,0 +1,15 @@
+Final Fight X Native - v0.3.31
+
+Base: v0.3.30 reconstructed from branch build-ffx-v0330.
+
+Runtime improvements:
+- Bounds long frame gaps after Alt-Tab, debugger pauses or driver stalls.
+- Splits long frames into simulation substeps of at most 1/120 second.
+- Suspends gameplay simulation while the window is minimized and resets the timing origin.
+- Keeps authored OpenBOR animation-delay conversion unchanged.
+- Updates native window/version metadata to v0.3.31.
+
+Validation:
+- cumulative v0.3.22-v0.3.30 validators
+- Windows x64 Release build
+- v0.3.31 source-token validation
