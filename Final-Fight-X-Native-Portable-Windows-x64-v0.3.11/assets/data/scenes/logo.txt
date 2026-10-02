@@ -1,0 +1,10 @@
+# REXXLUP PRODUCOES PORT - splash inicial do port
+# A imagem e repetida em dois passos de 1,5 s para permanecer ~3 s na tela.
+silence
+animation data/scenes/logo/rexxlup-port.png
+animation data/scenes/logo/rexxlup-port.png
+
+# A abertura original do Final Fight X continua normalmente depois da splash.
+music data/music/ff/rolent1.bor
+animation data/scenes/introducion/1.gif
+animation data/scenes/introducion/2.gif
