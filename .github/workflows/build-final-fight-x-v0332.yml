@@ -1,6 +1,6 @@
 # v0.3.32 PAK fidelity + cumulative native port fixes
 name: Build Final Fight X v0.3.32
-# scoped-validator-rerun-counter-final
+# scoped-validator-rerun-definitive
 
 on:
   push:
@@ -255,6 +255,20 @@ jobs:
         run: |
           python "ci\v0332\validate_counter_drop_final.py" "$env:FFX_SRC"
           if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 counter validator failed" }
+
+      - name: Apply final v0.3.32 weapon contact semantics
+        shell: pwsh
+        run: |
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0332\apply_weapon_contact_final.py"
+          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 weapon contact patch failed" }
+          Pop-Location
+
+      - name: Validate final v0.3.32 weapon contact semantics
+        shell: pwsh
+        run: |
+          python "ci\v0332\validate_weapon_contact_final.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 weapon contact validator failed" }
 
 
       - name: Validate v0.3.27 combat semantics
