@@ -25,3 +25,4 @@ bad=[k for k,v in checks.items() if not v]
 for k,v in checks.items(): print(f"{k}={'OK' if v else 'FAIL'}")
 if bad: raise SystemExit("v0.3.38 validation failed: "+", ".join(bad))
 print("v0.3.38 runtime regression validator=OK")
+# trigger v0.3.38 Windows build after workflow registration
