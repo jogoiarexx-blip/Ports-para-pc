@@ -15,7 +15,7 @@ checks={
  "loading-centered":"renderer_.drawImage(bg,ux,0)" in g,
  "menu-centered":"renderer_.fillRect(ux+44,61,232,173" in g,
  "hud-centered":"const float x=ux+(float)pos.x" in g,
- "select-start-local":"textCenteredAt(L\\"START\\",x+48" in g,
+ "select-start-local":'textCenteredAt(L"START",x+48' in g,
  "text-format-cache":"textFormats_" in rh and "cachedTextFormat" in rc,
  "text-grayscale":"D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE" in rc,
  "image-target-guard":"if(!target_&&!createTarget())return nullptr;auto it=images_.find(rel)" in rc,
