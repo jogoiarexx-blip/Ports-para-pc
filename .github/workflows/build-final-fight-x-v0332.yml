@@ -1,6 +1,6 @@
 # v0.3.32 PAK fidelity + cumulative native port fixes
 name: Build Final Fight X v0.3.32
-# scoped-validator-rerun-final
+# scoped-validator-rerun-counter-final
 
 on:
   push:
@@ -241,6 +241,20 @@ jobs:
           $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
           python "ci\v0332\validate_pak_fidelity.py" "$env:FFX_SRC" "$portable"
           if ($LASTEXITCODE -ne 0) { throw "v0.3.32 PAK fidelity validator failed" }
+
+      - name: Apply final v0.3.32 counter semantics
+        shell: pwsh
+        run: |
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0332\apply_counter_drop_final.py"
+          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 counter patch failed" }
+          Pop-Location
+
+      - name: Validate final v0.3.32 counter semantics
+        shell: pwsh
+        run: |
+          python "ci\v0332\validate_counter_drop_final.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 counter validator failed" }
 
 
       - name: Validate v0.3.27 combat semantics
