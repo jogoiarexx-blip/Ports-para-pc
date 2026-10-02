@@ -36,23 +36,12 @@ jobs:
         run: |
           $inner = Join-Path $env:RUNNER_TEMP "base-art\Final-Fight-X-v0.3.41-source.zip"
           if (!(Test-Path $inner)) { throw "Base source ZIP not found: $inner" }
-
           $src = Join-Path $env:RUNNER_TEMP "ffx-v0344-hd-src"
           New-Item -ItemType Directory -Force -Path $src | Out-Null
           Expand-Archive -Path $inner -DestinationPath $src -Force
 
-          # Normalize the two renderer files to LF because the tested patch was made from LF snapshots.
-          @'
-from pathlib import Path
-import os
-root = Path(os.environ["FFX_PATCH_SRC"])
-for rel in ("src/Renderer.cpp","src/Renderer.h"):
-    p = root / rel
-    s = p.read_text(encoding="utf-8-sig")
-    p.write_text(s.replace("\r\n","\n"), encoding="utf-8", newline="\n")
-'@ | Set-Content (Join-Path $env:RUNNER_TEMP "normalize.py") -Encoding UTF8
           $env:FFX_PATCH_SRC = $src
-          python (Join-Path $env:RUNNER_TEMP "normalize.py")
+          python -c "from pathlib import Path; import os; r=Path(os.environ['FFX_PATCH_SRC']); [p.write_text(p.read_text(encoding='utf-8-sig').replace(chr(13)+chr(10),chr(10)),encoding='utf-8',newline=chr(10)) for p in (r/'src/Renderer.cpp',r/'src/Renderer.h')]"
           if ($LASTEXITCODE -ne 0) { throw "Renderer normalization failed" }
 
           $chunks = Get-ChildItem "$env:GITHUB_WORKSPACE\ci\v0344\hd-renderer.patch.b64.*" | Sort-Object Name
