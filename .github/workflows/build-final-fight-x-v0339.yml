@@ -1,0 +1,111 @@
+name: Build OpenBOR Native Builder v0.34.17
+
+on:
+  push:
+    branches:
+      - build-openbor-v03417
+    paths:
+      - ".github/workflows/build-final-fight-x-v0339.yml"
+      - "ci/openbor-v03417/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-final-fight-x-v0339.yml"
+      - "ci/openbor-v03417/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Builder branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct OpenBOR Builder v0.34.17 source
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem "ci/openbor-v03417/hex*.txt" | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 source chunks, found $($parts.Count)" }
+          $hex = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          if (($hex.Length % 2) -ne 0) { throw "Invalid hex payload length" }
+          $bytes = [Convert]::FromHexString($hex)
+          $archive = Join-Path $env:RUNNER_TEMP "openbor-build-payload.tar.xz"
+          [IO.File]::WriteAllBytes($archive, $bytes)
+          tar -xf $archive -C $env:RUNNER_TEMP
+          $src = Join-Path $env:RUNNER_TEMP "openbor-build-payload"
+          if (-not (Test-Path (Join-Path $src "CMakeLists.txt"))) { throw "CMakeLists.txt missing" }
+          "OBNB_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure Windows x64
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP "openbor-v03417-build"
+          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OBNB_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          cmake --build "$env:OBNB_BUILD" --config Release --target openbor-native-builder -- /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Get-ChildItem "$env:OBNB_BUILD" -Recurse -Filter "openbor-native-builder.exe" | Select-Object -First 1
+          if (-not $exe) { throw "openbor-native-builder.exe not generated" }
+          "OBNB_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Assemble portable
+        shell: pwsh
+        run: |
+          $name = "OpenBOR-Native-Builder-v0.34.17-Portable-Windows-x64-EXE"
+          $dist = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "$env:OBNB_EXE" (Join-Path $dist "OpenBOR-Native-Builder.exe")
+          @"
+OpenBOR Native Builder v0.34.17 - Portable Windows x64
+
+Abra OpenBOR-Native-Builder.exe para selecionar pasta, ZIP ou PAK.
+
+Melhorias v0.34.17:
+- ordem real de spawn/wait/group/blockade;
+- transicoes next/capitulos e persistencia de HP;
+- scene/animation com skipone/noskip;
+- scroll vertical e direction left;
+- canSave;
+- spawn padrao P1-P4 compativel com OpenBOR legacy.
+"@ | Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt")
+          $hash = (Get-FileHash (Join-Path $dist "OpenBOR-Native-Builder.exe") -Algorithm SHA256).Hash.ToLower()
+          "$hash  OpenBOR-Native-Builder.exe" | Set-Content -Encoding ascii (Join-Path $dist "SHA256.txt")
+          "OBNB_DIST=$dist" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $exe = Join-Path "$env:OBNB_DIST" "OpenBOR-Native-Builder.exe"
+          $output = & $exe version 2>&1
+          $rc = $LASTEXITCODE
+          $text = ($output | Out-String)
+          Write-Host $text
+          if ($rc -ne 1) { throw "Unexpected smoke-test exit code: $rc" }
+          if ($text -notmatch "OpenBOR Native Builder 0\.34\.17") { throw "Wrong executable version" }
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "OpenBOR-Native-Builder-v0.34.17-Portable-Windows-x64-EXE.zip"
+          Compress-Archive -Path "$env:OBNB_DIST" -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  OpenBOR-Native-Builder-v0.34.17-Portable-Windows-x64-EXE.zip" | Set-Content -Encoding ascii (Join-Path $env:RUNNER_TEMP "ZIP-SHA256.txt")
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBOR-Native-Builder-v0.34.17-Portable-Windows-x64-EXE
+          path: |
+            ${{ runner.temp }}/OpenBOR-Native-Builder-v0.34.17-Portable-Windows-x64-EXE.zip
+            ${{ runner.temp }}/ZIP-SHA256.txt
+          if-no-files-found: error
+          retention-days: 1
