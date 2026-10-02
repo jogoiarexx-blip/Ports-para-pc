@@ -1,0 +1,14 @@
+ANALISE DA BASE v0.3.30 -> v0.3.31
+
+O que foi confirmado antes de alterar:
+- A base ja implementava antigrab, grabforce, bounce, aggression, diesound, thold, hostile, throwframewait, group/wait, burn/shock, platform, remap e regras de lives/credits.
+- Por isso esses sistemas nao foram reescritos sem necessidade.
+- As referencias de gameplay ativas ficaram consistentes; os apontamentos aparentemente ausentes encontrados inicialmente estavam em linhas comentadas ou em uma cena explicitamente nao utilizada.
+- O decoder nativo aceitou todas as musicas BOR auditadas e todos os WAV ativos sao PCM.
+
+Melhoria aplicada:
+- Protecao de frame-time + substeps no loop nativo Win32.
+- Pausa de simulacao quando a janela e minimizada.
+
+Objetivo da mudanca:
+- Tornar fisica, colisoes e projeteis mais estaveis quando o PC tem um frame demorado ou o usuario sai e volta do jogo, sem alterar o timing autoral dos arquivos OpenBOR.

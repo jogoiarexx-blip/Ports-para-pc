@@ -1,0 +1,8 @@
+Final Fight X Native v0.3.31
+Branch: build-ffx-v0331
+GitHub Actions run: 36930274232
+Commit: 52b4d1ec3a02b0e80176677699c33e4dbc6f8c61
+Build: Windows x64 Release / MSVC
+Executable size: 787968 bytes
+Executable SHA256: cfedb07644229dab9ee02d7fe38771b05cb9fb3f37dcf4ebcc0a06395dd8b622
+Assets files: 1769
