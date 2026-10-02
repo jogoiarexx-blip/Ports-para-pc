@@ -1,0 +1,111 @@
+name: Build Final Fight X v0.3.44 HD Remaster
+
+on:
+  push:
+    branches:
+      - build-ffx-v0343-hd
+    paths:
+      - ".github/workflows/build-final-fight-x-v0344-hd.yml"
+      - "ci/v0344/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout HD build branch
+        uses: actions/checkout@v4
+        with:
+          ref: build-ffx-v0343-hd
+
+      - name: Download stable reconstructed source
+        uses: actions/download-artifact@v4
+        with:
+          name: Final-Fight-X-v0.3.41-source
+          path: ${{ runner.temp }}\base-art
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: jogoiarexx-blip/Ports-para-pc
+          run-id: 37058789015
+
+      - name: Reconstruct source and apply HD renderer
+        shell: pwsh
+        run: |
+          $inner = Join-Path $env:RUNNER_TEMP "base-art\Final-Fight-X-v0.3.41-source.zip"
+          if (!(Test-Path $inner)) { throw "Base source ZIP not found: $inner" }
+
+          $src = Join-Path $env:RUNNER_TEMP "ffx-v0344-hd-src"
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          Expand-Archive -Path $inner -DestinationPath $src -Force
+
+          # Normalize the two renderer files to LF because the tested patch was made from LF snapshots.
+          @'
+from pathlib import Path
+import os
+root = Path(os.environ["FFX_PATCH_SRC"])
+for rel in ("src/Renderer.cpp","src/Renderer.h"):
+    p = root / rel
+    s = p.read_text(encoding="utf-8-sig")
+    p.write_text(s.replace("\r\n","\n"), encoding="utf-8", newline="\n")
+'@ | Set-Content (Join-Path $env:RUNNER_TEMP "normalize.py") -Encoding UTF8
+          $env:FFX_PATCH_SRC = $src
+          python (Join-Path $env:RUNNER_TEMP "normalize.py")
+          if ($LASTEXITCODE -ne 0) { throw "Renderer normalization failed" }
+
+          $chunks = Get-ChildItem "$env:GITHUB_WORKSPACE\ci\v0344\hd-renderer.patch.b64.*" | Sort-Object Name
+          if ($chunks.Count -ne 4) { throw "Expected 4 HD renderer patch chunks, got $($chunks.Count)" }
+          $b64 = ($chunks | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join ""
+          $patch = Join-Path $env:RUNNER_TEMP "hd-renderer.patch"
+          [IO.File]::WriteAllBytes($patch,[Convert]::FromBase64String($b64))
+
+          git -C "$src" init
+          git -C "$src" apply --check "$patch"
+          if ($LASTEXITCODE -ne 0) { throw "HD renderer patch check failed" }
+          git -C "$src" apply "$patch"
+          if ($LASTEXITCODE -ne 0) { throw "HD renderer patch failed" }
+
+          $cmakePath = Join-Path $src "CMakeLists.txt"
+          $c = Get-Content $cmakePath -Raw
+          $c = $c.Replace("project(FinalFightXNative VERSION 0.3.41 LANGUAGES CXX)","project(FinalFightXNative VERSION 0.3.44 LANGUAGES CXX)")
+          Set-Content $cmakePath $c -Encoding UTF8
+
+          $gamePath = Join-Path $src "src\Game.cpp"
+          $g = Get-Content $gamePath -Raw
+          $g = $g.Replace("NATIVE PORT v0.3.41","NATIVE PORT v0.3.44 HD REMASTER")
+          Set-Content $gamePath $g -Encoding UTF8
+
+          $mainPath = Join-Path $src "src\main_win.cpp"
+          $m = Get-Content $mainPath -Raw
+          $m = $m.Replace("Native C++ Port v0.3.41","Native C++ Port v0.3.44 HD REMASTER")
+          Set-Content $mainPath $m -Encoding UTF8
+
+          "FFX_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure Windows x64
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP "ffx-v0344-hd-build"
+          cmake -S "$env:FFX_SRC" -B "$build" -A x64
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+          "FFX_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build HD executable
+        shell: pwsh
+        run: |
+          cmake --build "$env:FFX_BUILD" --config Release --target FinalFightX -- /m
+          if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
+          if (!(Test-Path $exe)) { throw "FinalFightX.exe was not generated" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "FinalFightX.exe SHA256=$hash"
+
+      - name: Upload HD executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-v0.3.44-HD-Remaster-Windows-x64-exe
+          path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
+          if-no-files-found: error
+          retention-days: 1
