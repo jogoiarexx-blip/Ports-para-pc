@@ -64,19 +64,20 @@ jobs:
           $dist = Join-Path $env:RUNNER_TEMP $name
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Copy-Item "$env:OBNB_EXE" (Join-Path $dist "OpenBOR-Native-Builder.exe")
-          @"
-OpenBOR Native Builder v0.34.17 - Portable Windows x64
-
-Abra OpenBOR-Native-Builder.exe para selecionar pasta, ZIP ou PAK.
-
-Melhorias v0.34.17:
-- ordem real de spawn/wait/group/blockade;
-- transicoes next/capitulos e persistencia de HP;
-- scene/animation com skipone/noskip;
-- scroll vertical e direction left;
-- canSave;
-- spawn padrao P1-P4 compativel com OpenBOR legacy.
-"@ | Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt")
+          $readme = @(
+            "OpenBOR Native Builder v0.34.17 - Portable Windows x64",
+            "",
+            "Abra OpenBOR-Native-Builder.exe para selecionar pasta, ZIP ou PAK.",
+            "",
+            "Melhorias v0.34.17:",
+            "- ordem real de spawn/wait/group/blockade;",
+            "- transicoes next/capitulos e persistencia de HP;",
+            "- scene/animation com skipone/noskip;",
+            "- scroll vertical e direction left;",
+            "- canSave;",
+            "- spawn padrao P1-P4 compativel com OpenBOR legacy."
+          ) -join [Environment]::NewLine
+          Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt") -Value $readme
           $hash = (Get-FileHash (Join-Path $dist "OpenBOR-Native-Builder.exe") -Algorithm SHA256).Hash.ToLower()
           "$hash  OpenBOR-Native-Builder.exe" | Set-Content -Encoding ascii (Join-Path $dist "SHA256.txt")
           "OBNB_DIST=$dist" | Out-File -FilePath $env:GITHUB_ENV -Append
