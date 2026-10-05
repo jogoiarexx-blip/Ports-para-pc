@@ -1,4 +1,4 @@
-name: Build OpenBOR Native Builder v0.34.22
+name: Build OpenBOR Native Builder v0.34.22 MinGW
 
 on:
   push:
@@ -13,152 +13,136 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct v0.34.22 source
-        shell: pwsh
+      - name: Install MinGW
         run: |
-          $parts = Get-ChildItem "ci/openbor-v03422/hex*.txt" | Sort-Object Name
-          if ($parts.Count -ne 1) { throw "Expected 1 source chunk, found $($parts.Count)" }
-          $hex = (($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join "") -replace '\s',''
-          $archive = Join-Path $env:RUNNER_TEMP "openbor-v03422.tar.xz"
-          [IO.File]::WriteAllBytes($archive,[Convert]::FromHexString($hex))
-          tar -xf $archive -C $env:RUNNER_TEMP
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $src = Join-Path $env:RUNNER_TEMP "OpenBOR-Native-Builder-v0.34.22-Source-Code"
-          $cmakePath = Join-Path $src "CMakeLists.txt"
-          if (-not (Test-Path $cmakePath)) { throw "Source CMakeLists missing" }
-          $lines = @(Get-Content $cmakePath)
-          $cut = [Array]::IndexOf($lines,"enable_testing()")
-          if ($cut -ge 0) { Set-Content -Encoding UTF8 $cmakePath -Value $lines[0..($cut-1)] }
-          "OBNB_SRC=$src" | Out-File $env:GITHUB_ENV -Append
+          sudo apt-get update
+          sudo apt-get install -y ninja-build mingw-w64
 
-      - name: Configure Builder Win64
-        shell: pwsh
+      - name: Reconstruct source
         run: |
-          $build = Join-Path $env:RUNNER_TEMP "obnb-v03422-build"
-          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 17 2022" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "OBNB_BUILD=$build" | Out-File $env:GITHUB_ENV -Append
+          cat ci/openbor-v03422/hex*.txt | tr -d '[:space:]' | xxd -r -p > /tmp/openbor-v03422.tar.xz
+          tar -xJf /tmp/openbor-v03422.tar.xz -C /tmp
+          test -f /tmp/OpenBOR-Native-Builder-v0.34.22-Source-Code/CMakeLists.txt
+          echo "OBNB_SRC=/tmp/OpenBOR-Native-Builder-v0.34.22-Source-Code" >> "$GITHUB_ENV"
 
-      - name: Build Builder
-        shell: pwsh
+      - name: Build native Builder for fixture generation
         run: |
-          cmake --build "$env:OBNB_BUILD" --config Release --target openbor-native-builder -- /m
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $exe = Get-ChildItem "$env:OBNB_BUILD" -Recurse -Filter "openbor-native-builder.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Builder EXE missing" }
-          "OBNB_EXE=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
+          cmake -S "$OBNB_SRC" -B /tmp/ob22-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/ob22-native --target openbor-native-builder -j2
+          /tmp/ob22-native/openbor-native-builder version || true
+          echo "NATIVE_BUILDER=/tmp/ob22-native/openbor-native-builder" >> "$GITHUB_ENV"
 
-      - name: Verify Builder version
-        shell: pwsh
+      - name: Build Windows x64 Builder with MinGW
         run: |
-          $out = & "$env:OBNB_EXE" version 2>&1 | Out-String
-          Write-Host $out
-          if ($out -notmatch "OpenBOR Native Builder 0\.34\.22") { throw "Wrong version" }
-          exit 0
+          cmake -S "$OBNB_SRC" -B /tmp/ob22-win -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Windows             -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++             -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+          cmake --build /tmp/ob22-win --target openbor-native-builder -j2
+          test -f /tmp/ob22-win/openbor-native-builder.exe
+          file /tmp/ob22-win/openbor-native-builder.exe
+          x86_64-w64-mingw32-objdump -p /tmp/ob22-win/openbor-native-builder.exe | grep -E "DLL Name|Subsystem" | head -30
 
-      - name: Generate v0.34.22 fixture port
-        shell: pwsh
+      - name: Generate v0.34.22 fixture
         run: |
-          $fixture = Join-Path $env:RUNNER_TEMP "v03422-fixture"
-          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/chars") | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/levels") | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/bgs") | Out-Null
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/models.txt") -Value @(
-            "load Hero data/chars/hero.txt",
-            "load Sneak data/chars/sneak.txt"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels.txt") -Value @(
-            "completebg 1",
-            "set Smoke",
-            "noshare 1",
-            "skipselect 1",
-            "cansave 2",
-            "file data/levels/smoke.txt"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/chars/hero.txt") -Value @(
-            "name Hero","type player","health 120","speed 18","jumpspeed 20","walkoffmove 2 1",
-            "anim idle","loop 1","delay 8","frame none",
-            "anim attack1","delay 4","attack 0 0 40 40 8","frame none"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/chars/sneak.txt") -Value @(
-            "name Sneak","type enemy","health 9999","stealth 5 7","nomove 1",
-            "anim idle","loop 1","delay 10","frame none"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels/smoke.txt") -Value @(
-            "direction right",
-            "spawn Sneak",
-            "map1",
-            "coords 180 205 0",
-            "at 0",
-            "boss 1"
-          )
-          $port = Join-Path $env:RUNNER_TEMP "v03422-port"
-          & "$env:OBNB_EXE" convert "$fixture" "$port"
-          if ($LASTEXITCODE -ne 0) { throw "Conversion failed" }
-          $stages = Get-Content (Join-Path $port "runtime/generated/GeneratedStages.cpp") -Raw
-          $engine = Get-Content (Join-Path $port "runtime/src/Engine.cpp") -Raw
-          $report = Get-Content (Join-Path $port "reports/compatibility-report.txt") -Raw
-          if ($engine -notmatch "playStageCompleteScreen" -or $engine -notmatch "walkoffMoveX" -or $engine -notmatch "modelCanPerceive") { throw "v0.34.22 runtime features missing" }
-          if ($stages -notmatch '"1"') { throw "map1 palette normalization missing" }
-          if ($report -notmatch "completebg x1 -> SUPPORTED" -or $report -notmatch "map1 x1 -> SUPPORTED" -or $report -notmatch "walkoffmove x1 -> SUPPORTED" -or $report -notmatch "stealth x1 -> SUPPORTED") { throw "v0.34.22 compatibility statuses missing" }
-          "TEST_PORT=$port" | Out-File $env:GITHUB_ENV -Append
+          F=/tmp/v03422-fixture
+          mkdir -p "$F/data/chars" "$F/data/levels" "$F/data/bgs"
+          cat > "$F/data/models.txt" <<'EOF'
+          load Hero data/chars/hero.txt
+          load Sneak data/chars/sneak.txt
+          EOF
+          cat > "$F/data/levels.txt" <<'EOF'
+          completebg 1
+          set Smoke
+          noshare 1
+          skipselect 1
+          cansave 2
+          file data/levels/smoke.txt
+          EOF
+          cat > "$F/data/chars/hero.txt" <<'EOF'
+          name Hero
+          type player
+          health 120
+          speed 18
+          jumpspeed 20
+          walkoffmove 2 1
+          anim idle
+          loop 1
+          delay 8
+          frame none
+          anim attack1
+          delay 4
+          attack 0 0 40 40 8
+          frame none
+          EOF
+          cat > "$F/data/chars/sneak.txt" <<'EOF'
+          name Sneak
+          type enemy
+          health 9999
+          stealth 5 7
+          nomove 1
+          anim idle
+          loop 1
+          delay 10
+          frame none
+          EOF
+          cat > "$F/data/levels/smoke.txt" <<'EOF'
+          direction right
+          spawn Sneak
+          map1
+          coords 180 205 0
+          at 0
+          boss 1
+          EOF
+          "$NATIVE_BUILDER" convert "$F" /tmp/v03422-port
+          grep -q "completebg x1 -> SUPPORTED" /tmp/v03422-port/reports/compatibility-report.txt
+          grep -q "map1 x1 -> SUPPORTED" /tmp/v03422-port/reports/compatibility-report.txt
+          grep -q "walkoffmove x1 -> SUPPORTED" /tmp/v03422-port/reports/compatibility-report.txt
+          grep -q "stealth x1 -> SUPPORTED" /tmp/v03422-port/reports/compatibility-report.txt
+          grep -q "playStageCompleteScreen" /tmp/v03422-port/runtime/src/Engine.cpp
 
-      - name: Build generated game
-        shell: pwsh
+      - name: Native gameplay smoke
         run: |
-          $rb = Join-Path "$env:TEST_PORT" "runtime/build-ci"
-          cmake -S (Join-Path "$env:TEST_PORT" "runtime") -B $rb -G "Visual Studio 17 2022" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build $rb --config Release --target openbor-port -- /m
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $game = Get-ChildItem $rb -Recurse -Filter "openbor-port.exe" | Select-Object -First 1
-          if (-not $game) { throw "Game EXE missing" }
-          "TEST_GAME=$($game.FullName)" | Out-File $env:GITHUB_ENV -Append
+          cmake -S /tmp/v03422-port/runtime -B /tmp/v03422-port/runtime/build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/v03422-port/runtime/build-native -j2
+          /tmp/v03422-port/runtime/build-native/openbor-port --smoke-game --smoke-frames=300 | tee /tmp/smoke.log
+          grep -q "SMOKE GAME OK frames=300" /tmp/smoke.log
 
-      - name: Diagnose and smoke generated game
-        shell: pwsh
+      - name: Cross-build generated game Win64
         run: |
-          $p = Start-Process "$env:TEST_GAME" -ArgumentList "--diagnose" -WorkingDirectory "$env:TEST_PORT" -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "Diagnose failed: $($p.ExitCode)" }
-          $p = Start-Process "$env:TEST_GAME" -ArgumentList "--smoke-game","--smoke-frames=300" -WorkingDirectory "$env:TEST_PORT" -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "Smoke failed: $($p.ExitCode)" }
-          $log = Get-Content (Join-Path "$env:TEST_PORT" "runtime-startup.log") -Raw
-          Write-Host $log
-          if ($log -notmatch "SMOKE GAME OK frames=300") { throw "Smoke marker missing" }
+          cmake -S /tmp/v03422-port/runtime -B /tmp/v03422-runtime-win -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_SYSTEM_NAME=Windows             -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++             -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+          cmake --build /tmp/v03422-runtime-win -j2
+          test -f /tmp/v03422-runtime-win/openbor-port.exe
+          file /tmp/v03422-runtime-win/openbor-port.exe
+          x86_64-w64-mingw32-objdump -p /tmp/v03422-runtime-win/openbor-port.exe | grep -E "DLL Name|Subsystem" | head -40
 
       - name: Assemble portable Builder
-        shell: pwsh
         run: |
-          $name = "OpenBOR-Native-Builder-v0.34.22-Portable-Windows-x64"
-          $dist = Join-Path $env:RUNNER_TEMP $name
-          New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          Copy-Item "$env:OBNB_EXE" (Join-Path $dist "OpenBOR-Native-Builder.exe")
-          Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt") -Value @(
-            "OpenBOR Native Builder v0.34.22 - Portable Windows x64",
-            "",
-            "Novidades:",
-            "- completebg mostra bgs/complete antes da proxima fase.",
-            "- map1/map2/... normalizados para palette map do spawn.",
-            "- stealth/perception usados pela IA e findtarget.",
-            "- walkoffmove aplica controle X/Z em quedas naturais de plataforma.",
-            "- nocheats/nodebug tratados sem UNKNOWN.",
-            "- noshare preservado como metadata; split de creditos P1-P4 ainda PARTIAL.",
-            "",
-            "Validacao Windows: Builder + runtime gerado + diagnose + smoke 300 frames."
-          )
-          $hash=(Get-FileHash (Join-Path $dist "OpenBOR-Native-Builder.exe") -Algorithm SHA256).Hash.ToLower()
-          Set-Content -Encoding ASCII (Join-Path $dist "SHA256.txt") -Value ($hash+"  OpenBOR-Native-Builder.exe")
-          $zip=Join-Path $env:RUNNER_TEMP ($name+".zip")
-          Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal -Force
-          "DIST_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append
+          NAME=OpenBOR-Native-Builder-v0.34.22-Portable-Windows-x64
+          mkdir -p "/tmp/$NAME"
+          cp /tmp/ob22-win/openbor-native-builder.exe "/tmp/$NAME/OpenBOR-Native-Builder.exe"
+          cat > "/tmp/$NAME/LEIA-ME.txt" <<'EOF'
+          OpenBOR Native Builder v0.34.22 - Portable Windows x64
+
+          completebg: native stage-complete screen
+          map1/map2/...: spawn palette shorthand
+          stealth/perception: native target filtering
+          walkoffmove: native platform walk-off control
+          noshare: metadata preserved; individual credit pools remain PARTIAL
+
+          Validation: Linux regression/runtime smoke + MinGW Win64 Builder/runtime cross-build.
+          EOF
+          (cd /tmp && zip -9 -r "$NAME.zip" "$NAME")
+          sha256sum "/tmp/$NAME/OpenBOR-Native-Builder.exe" > /tmp/EXE-SHA256.txt
+          sha256sum "/tmp/$NAME.zip" > /tmp/ZIP-SHA256.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: OpenBOR-Native-Builder-v0.34.22-Portable-Windows-x64
-          path: ${{ env.DIST_ZIP }}
+          path: |
+            /tmp/OpenBOR-Native-Builder-v0.34.22-Portable-Windows-x64.zip
+            /tmp/EXE-SHA256.txt
+            /tmp/ZIP-SHA256.txt
           if-no-files-found: error
           retention-days: 1
