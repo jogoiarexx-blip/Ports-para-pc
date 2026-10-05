@@ -1,15 +1,16 @@
-# v0.3.45 HD Sharp + cumulative native port fixes
-name: Build Final Fight X v0.3.45 HD Sharp
+# v0.3.46 Fullscreen UI + v0.3.45 HD Sharp
+name: Build Final Fight X v0.3.46 Fullscreen UI
 # v0342-build
 
 on:
   push:
     branches:
-      - build-ffx-v0345-hd-sharp2
+      - build-ffx-v0346-fullscreen-ui
     paths:
       - ".github/workflows/build-final-fight-x-v0342.yml"
       - "ci/v0342/**"
       - "ci/v0345/**"
+      - "ci/v0346/**"
   pull_request:
     branches:
       - main
@@ -17,6 +18,7 @@ on:
       - ".github/workflows/build-final-fight-x-v0342.yml"
       - "ci/v0342/**"
       - "ci/v0345/**"
+      - "ci/v0346/**"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: build-ffx-v0345-hd-sharp2
+          ref: build-ffx-v0346-fullscreen-ui
 
       - name: Reconstruct v0.3.20 compact source
         shell: pwsh
@@ -507,6 +509,20 @@ jobs:
           if (-not $game.Contains("v0.3.45 HD SHARP")) { throw "v0.3.45 version banner missing" }
           if (-not $renderer.Contains("if(!hdTextures_)return {}")) { throw "v0.3.45 HD asset toggle missing" }
 
+      - name: Apply v0.3.46 fullscreen menu compatibility
+        shell: pwsh
+        run: |
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0346\apply_fullscreen_ui.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.46 fullscreen UI patch failed" }
+          Pop-Location
+
+      - name: Validate v0.3.46 fullscreen menu compatibility
+        shell: pwsh
+        run: |
+          python "ci\v0346\validate_fullscreen_ui.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.46 fullscreen UI validator failed" }
+
 
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
@@ -650,14 +666,14 @@ jobs:
       - name: Archive reconstructed source
         shell: pwsh
         run: |
-          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.45-HD-Sharp-source.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.46-Fullscreen-UI-source.zip"
           Compress-Archive -Path "$env:FFX_SRC\*" -DestinationPath $zip -Force
           "FFX_SOURCE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload reconstructed source
         uses: actions/upload-artifact@v4
         with:
-          name: Final-Fight-X-v0.3.45-HD-Sharp-source
+          name: Final-Fight-X-v0.3.46-Fullscreen-UI-source
           path: ${{ env.FFX_SOURCE_ZIP }}
           if-no-files-found: error
           retention-days: 1
@@ -665,7 +681,7 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: Final-Fight-X-v0.3.45-HD-Sharp-Windows-x64-exe
+          name: Final-Fight-X-v0.3.46-Fullscreen-UI-Windows-x64-exe
           path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
           if-no-files-found: error
           retention-days: 1
