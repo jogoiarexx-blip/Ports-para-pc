@@ -1,157 +1,27 @@
-name: Build OpenBOR Native Builder v0.34.18
-
+name: Export OpenBOR Native Builder v0.34.18 Source
 on:
   push:
-    branches:
-      - build-openbor-v03418
+    branches: [build-openbor-v03418]
     paths:
       - ".github/workflows/build-final-fight-x-v0339.yml"
-      - "ci/openbor-v03418/**"
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  build:
+  export:
     runs-on: windows-latest
     steps:
-      - name: Checkout Builder branch
-        uses: actions/checkout@v4
-
-      - name: Reconstruct v0.34.18 source
+      - uses: actions/checkout@v4
+      - name: Reconstruct source
         shell: pwsh
         run: |
           $parts = Get-ChildItem "ci/openbor-v03418/hex*.txt" | Sort-Object Name
-          if ($parts.Count -ne 6) { throw "Expected 6 source chunks, found $($parts.Count)" }
           $hex = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          if (($hex.Length % 2) -ne 0) { throw "Invalid hex payload" }
-          $archive = Join-Path $env:RUNNER_TEMP "openbor-v03418.tar.xz"
-          [IO.File]::WriteAllBytes($archive, [Convert]::FromHexString($hex))
-          $src = Join-Path $env:RUNNER_TEMP "openbor-v03418-src"
-          New-Item -ItemType Directory -Force -Path $src | Out-Null
-          tar -xf $archive -C $src
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $cmakePath = Join-Path $src "CMakeLists.txt"
-          $lines = @(Get-Content $cmakePath)
-          $cut = [Array]::IndexOf($lines, "enable_testing()")
-          if ($cut -ge 0) {
-            $lines = $lines[0..($cut - 1)]
-            Set-Content -Encoding UTF8 $cmakePath -Value $lines
-          }
-          "OBNB_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Configure Builder Win64 ClangCL
-        shell: pwsh
-        run: |
-          $build = Join-Path $env:RUNNER_TEMP "openbor-v03418-build"
-          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "OBNB_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Build Builder Release
-        shell: pwsh
-        run: |
-          cmake --build "$env:OBNB_BUILD" --config Release --target openbor-native-builder -- /m
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $exe = Get-ChildItem "$env:OBNB_BUILD" -Recurse -Filter "openbor-native-builder.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Builder EXE not generated" }
-          "OBNB_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Smoke test Builder version
-        shell: pwsh
-        run: |
-          $out = & "$env:OBNB_EXE" version 2>&1
-          $text = ($out | Out-String)
-          Write-Host $text
-          if ($text -notmatch "OpenBOR Native Builder 0\.34\.18") { throw "Wrong Builder version" }
-          exit 0
-
-      - name: Generate real native test port
-        shell: pwsh
-        run: |
-          $fixture = Join-Path $env:RUNNER_TEMP "openbor-fixture"
-          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/chars") | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/levels") | Out-Null
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/models.txt") -Value @(
-            "load Hero data/chars/hero.txt"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels.txt") -Value @(
-            "set Test",
-            "cansave 2",
-            "file data/levels/stage.txt"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/chars/hero.txt") -Value @(
-            "name Hero",
-            "type player",
-            "health 100",
-            "anim idle",
-            "delay 8",
-            "frame none"
-          )
-          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels/stage.txt") -Value @(
-            "direction right",
-            "spawn1 20 5 0"
-          )
-          $port = Join-Path $env:RUNNER_TEMP "generated-port"
-          & "$env:OBNB_EXE" convert "$fixture" "$port"
-          if ($LASTEXITCODE -ne 0) { throw "Builder failed to generate test port" }
-          if (-not (Test-Path (Join-Path $port "runtime/CMakeLists.txt"))) { throw "Generated runtime missing" }
-          "TEST_PORT=$port" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Build generated game runtime Win64
-        shell: pwsh
-        run: |
-          $rb = Join-Path $env:RUNNER_TEMP "generated-port-build"
-          cmake -S (Join-Path "$env:TEST_PORT" "runtime") -B $rb -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build $rb --config Release --target openbor-port -- /m
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $game = Get-ChildItem $rb -Recurse -Filter "openbor-port.exe" | Select-Object -First 1
-          if (-not $game) { throw "Generated game EXE missing" }
-          "TEST_GAME=$($game.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Diagnose generated game on Windows
-        shell: pwsh
-        run: |
-          & "$env:TEST_GAME" --diagnose
-          $rc = $LASTEXITCODE
-          Write-Host "Generated game diagnose exit=$rc"
-          $log = Join-Path "$env:TEST_PORT" "runtime-startup.log"
-          if (Test-Path $log) { Get-Content $log }
-          if ($rc -ne 0) { throw "Generated game diagnose failed" }
-          if (-not (Test-Path $log)) { throw "runtime-startup.log was not created" }
-          $text = Get-Content $log -Raw
-          if ($text -notmatch "DIAGNOSE OK") { throw "DIAGNOSE OK missing from startup log" }
-
-      - name: Assemble portable Builder
-        shell: pwsh
-        run: |
-          $name = "OpenBOR-Native-Builder-v0.34.18-Portable-Windows-x64"
-          $dist = Join-Path $env:RUNNER_TEMP $name
-          New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          Copy-Item "$env:OBNB_EXE" (Join-Path $dist "OpenBOR-Native-Builder.exe")
-          $readme = @(
-            "OpenBOR Native Builder v0.34.18 - Portable Windows x64",
-            "",
-            "Correcao principal: ports gerados nao devem mais fechar silenciosamente.",
-            "O runtime procura assets relativo ao EXE e grava runtime-startup.log.",
-            "Falhas fatais exibem mensagem no Windows e gravam runtime-crash.log.",
-            "O pacote do jogo inclui INICIAR-JOGO.cmd e DIAGNOSTICO.cmd.",
-            "",
-            "Validacao Windows: Builder compilado, port de teste gerado, runtime do jogo compilado e --diagnose aprovado."
-          ) -join [Environment]::NewLine
-          Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt") -Value $readme
-          $hash = (Get-FileHash (Join-Path $dist "OpenBOR-Native-Builder.exe") -Algorithm SHA256).Hash.ToLower()
-          Set-Content -Encoding ASCII (Join-Path $dist "SHA256.txt") -Value ($hash + "  OpenBOR-Native-Builder.exe")
-          $zip = Join-Path $env:RUNNER_TEMP ($name + ".zip")
-          Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal -Force
-          "OBNB_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Upload portable Builder
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\openbor-v03418.tar.xz",[Convert]::FromHexString($hex))
+      - name: Upload exact source archive
         uses: actions/upload-artifact@v4
         with:
-          name: OpenBOR-Native-Builder-v0.34.18-Portable-Windows-x64
-          path: ${{ env.OBNB_ZIP }}
+          name: OpenBOR-Native-Builder-v0.34.18-Exact-Source
+          path: ${{ runner.temp }}\openbor-v03418.tar.xz
           if-no-files-found: error
           retention-days: 1
