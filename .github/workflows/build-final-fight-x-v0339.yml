@@ -146,6 +146,7 @@ jobs:
 
           $report = Get-Content (Join-Path $port "reports/compatibility-report.txt") -Raw
           $engine = Get-Content (Join-Path $port "runtime/src/Engine.cpp") -Raw
+          $runtimeText = (Get-ChildItem (Join-Path $port "runtime/src") -Filter "*.cpp" | ForEach-Object { Get-Content $_.FullName -Raw }) -join [Environment]::NewLine
 
           foreach ($needle in @("water x1 -> SUPPORTED","rock x1 -> SUPPORTED")) {
             if ($report -notmatch [regex]::Escape($needle)) { throw "Missing support marker: $needle" }
@@ -155,7 +156,7 @@ jobs:
           if ($report -match "include-missing") { throw "Stale/recoverable include was not recovered" }
 
           foreach ($needle in @("legacyWaterSurface","scriptUniqueBasename","rock==0","rock==1")) {
-            if ($engine -notmatch $needle) { throw "Generated runtime missing: $needle" }
+            if ($runtimeText -notmatch $needle) { throw "Generated runtime missing: $needle" }
           }
 
           "TEST_PORT=$port" | Out-File $env:GITHUB_ENV -Append
