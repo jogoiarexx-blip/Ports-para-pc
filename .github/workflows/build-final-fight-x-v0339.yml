@@ -30,7 +30,7 @@ jobs:
           [IO.File]::WriteAllBytes($archive, [Convert]::FromHexString($hex))
           tar -xf $archive -C $env:RUNNER_TEMP
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $src = Join-Path $env:RUNNER_TEMP "ob19_payload"
+          $src = Join-Path $env:RUNNER_TEMP "OpenBOR-Native-Builder-v0.34.19-Source-Code"
           $cmakePath = Join-Path $src "CMakeLists.txt"
           $lines = @(Get-Content $cmakePath)
           $cut = [Array]::IndexOf($lines, "enable_testing()")
