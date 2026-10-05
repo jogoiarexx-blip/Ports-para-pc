@@ -1,20 +1,11 @@
-# v0.3.39 vertical transition + scene fidelity + cumulative native port fixes
-name: Build Final Fight X v0.3.39
-# v0339-build
+name: Build OpenBOR Native Builder v0.34.20
 
 on:
   push:
-    branches:
-      - build-ffx-v0339
+    branches: [build-openbor-v03420]
     paths:
       - ".github/workflows/build-final-fight-x-v0339.yml"
-      - "ci/v0339/**"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/build-final-fight-x-v0339.yml"
-      - "ci/v0339/**"
+      - "ci/openbor-v03420/**"
   workflow_dispatch:
 
 permissions:
@@ -24,522 +15,121 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct v0.34.20 source
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem "ci/openbor-v03420/hex*.txt" | Sort-Object Name
+          if ($parts.Count -ne 7) { throw "Expected 7 source chunks, found $($parts.Count)" }
+          $hex = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $archive = Join-Path $env:RUNNER_TEMP "openbor-v03420.tar.xz"
+          [IO.File]::WriteAllBytes($archive,[Convert]::FromHexString($hex))
+          tar -xf $archive -C $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $src = Join-Path $env:RUNNER_TEMP "OpenBOR-Native-Builder-v0.34.20-Source-Code"
+          if (-not (Test-Path (Join-Path $src "CMakeLists.txt"))) { throw "Source CMakeLists missing" }
+          $lines = @(Get-Content (Join-Path $src "CMakeLists.txt"))
+          $cut = [Array]::IndexOf($lines,"enable_testing()")
+          if ($cut -ge 0) { Set-Content -Encoding UTF8 (Join-Path $src "CMakeLists.txt") -Value $lines[0..($cut-1)] }
+          "OBNB_SRC=$src" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Configure Builder Win64
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP "obnb-v03420-build"
+          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OBNB_BUILD=$build" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Build Builder
+        shell: pwsh
+        run: |
+          cmake --build "$env:OBNB_BUILD" --config Release --target openbor-native-builder -- /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Get-ChildItem "$env:OBNB_BUILD" -Recurse -Filter "openbor-native-builder.exe" | Select-Object -First 1
+          if (-not $exe) { throw "Builder EXE missing" }
+          "OBNB_EXE=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Verify Builder version
+        shell: pwsh
+        run: |
+          $out = & "$env:OBNB_EXE" version 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch "OpenBOR Native Builder 0\.34\.20") { throw "Wrong version" }
+          exit 0
+
+      - name: Generate skipselect test port
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP "v03420-fixture"
+          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/chars") | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $fixture "data/levels") | Out-Null
+          Set-Content -Encoding ASCII (Join-Path $fixture "data/models.txt") -Value @("load Hero data/chars/hero.txt","load Dummy data/chars/dummy.txt")
+          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels.txt") -Value @("set Smoke","cansave 2","skipselect 1","file data/levels/smoke.txt")
+          Set-Content -Encoding ASCII (Join-Path $fixture "data/chars/hero.txt") -Value @("name Hero","type player","health 120","anim idle","loop 1","delay 8","frame none","anim attack1","delay 4","attack 0 0 40 40 8","frame none")
+          Set-Content -Encoding ASCII (Join-Path $fixture "data/chars/dummy.txt") -Value @("name Dummy","type enemy","health 9999","nomove 1","anim idle","loop 1","delay 10","frame none")
+          Set-Content -Encoding ASCII (Join-Path $fixture "data/levels/smoke.txt") -Value @("direction right","spawn1 20 5 0","spawn Dummy","coords 180 205 0","at 0","boss 1")
+          $port = Join-Path $env:RUNNER_TEMP "v03420-port"
+          & "$env:OBNB_EXE" convert "$fixture" "$port"
+          if ($LASTEXITCODE -ne 0) { throw "Conversion failed" }
+          $engine = Get-Content (Join-Path $port "runtime/src/Engine.cpp") -Raw
+          if ($engine -notmatch "kStages\[0\]\.skipSelect" -or $engine -notmatch "else if\(accept\|\|gamepadButtonPressedFor" -or $engine -notmatch 'if\(name=="sin"\)') { throw "v0.34.20 runtime features missing" }
+          "TEST_PORT=$port" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Build generated game
+        shell: pwsh
+        run: |
+          $rb = Join-Path "$env:TEST_PORT" "runtime/build-ci"
+          cmake -S (Join-Path "$env:TEST_PORT" "runtime") -B $rb -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build $rb --config Release --target openbor-port -- /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $game = Get-ChildItem $rb -Recurse -Filter "openbor-port.exe" | Select-Object -First 1
+          if (-not $game) { throw "Game EXE missing" }
+          "TEST_GAME=$($game.FullName)" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Diagnose and smoke generated game
+        shell: pwsh
+        run: |
+          $p = Start-Process "$env:TEST_GAME" -ArgumentList "--diagnose" -WorkingDirectory "$env:TEST_PORT" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Diagnose failed: $($p.ExitCode)" }
+          $p = Start-Process "$env:TEST_GAME" -ArgumentList "--smoke-game","--smoke-frames=300" -WorkingDirectory "$env:TEST_PORT" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Smoke failed: $($p.ExitCode)" }
+          $log = Get-Content (Join-Path "$env:TEST_PORT" "runtime-startup.log") -Raw
+          Write-Host $log
+          if ($log -notmatch "SMOKE GAME OK frames=300") { throw "Smoke marker missing" }
+
+      - name: Assemble portable Builder
+        shell: pwsh
+        run: |
+          $name = "OpenBOR-Native-Builder-v0.34.20-Portable-Windows-x64"
+          $dist = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "$env:OBNB_EXE" (Join-Path $dist "OpenBOR-Native-Builder.exe")
+          Set-Content -Encoding UTF8 (Join-Path $dist "LEIA-ME.txt") -Value @(
+            "OpenBOR Native Builder v0.34.20 - Portable Windows x64",
+            "",
+            "Correcoes principais:",
+            "- skipselect agora pula a selecao generica quando o jogo pede.",
+            "- Enter/Start nao e mais consumido duas vezes no Character Select.",
+            "- ScriptVM adiciona sin/cos/sqrt/atan/atan2/pow/abs/floor/ceil.",
+            "- detecta RAR pelo conteudo mesmo quando o arquivo se chama .zip.",
+            "- aceita ports com assets/openbor-data como entrada.",
+            "- conversao e build/package agora reportam status separados.",
+            "- gerador Windows tenta VS 2026/ClangCL, VS 2022/ClangCL e fallback.",
+            "",
+            "Validacao CI: Builder Win64 + runtime gerado + diagnose + smoke 300 frames."
+          )
+          $hash=(Get-FileHash (Join-Path $dist "OpenBOR-Native-Builder.exe") -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Encoding ASCII (Join-Path $dist "SHA256.txt") -Value ($hash+"  OpenBOR-Native-Builder.exe")
+          $zip=Join-Path $env:RUNNER_TEMP ($name+".zip")
+          Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal -Force
+          "DIST_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append
+
+      - uses: actions/upload-artifact@v4
         with:
-          ref: build-ffx-v0339
-
-      - name: Reconstruct v0.3.20 compact source
-        shell: pwsh
-        run: |
-          $chunks = Get-ChildItem "ci/v0320/ffx-v0320-src.b64.*" | Sort-Object Name
-          if ($chunks.Count -ne 7) { throw "Expected 7 v0.3.20 chunks" }
-          $b64 = ($chunks | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          $zip = Join-Path $env:RUNNER_TEMP "ffx-v0320-src.zip"
-          [IO.File]::WriteAllBytes($zip, [Convert]::FromBase64String($b64))
-          $src = Join-Path $env:RUNNER_TEMP "ffx-v0339-src"
-          New-Item -ItemType Directory -Force -Path $src | Out-Null
-          Expand-Archive -Path $zip -DestinationPath $src -Force
-          "FFX_SRC=$src" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Apply v0.3.22 phase 1 structural fix
-        shell: pwsh
-        run: |
-          $chunks = Get-ChildItem "ci/v0322/ffx-v0322.patch.b64.*" | Sort-Object Name
-          if ($chunks.Count -ne 3) { throw "Expected 3 v0.3.22 patch chunks" }
-          $b64 = ($chunks | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          $patch = Join-Path $env:RUNNER_TEMP "ffx-v0322.patch"
-          [IO.File]::WriteAllBytes($patch, [Convert]::FromBase64String($b64))
-          git -C "$env:FFX_SRC" init
-          git -C "$env:FFX_SRC" add -A
-          git -C "$env:FFX_SRC" -c user.name=CI -c user.email=ci@example.invalid commit -m "base v0.3.20"
-          git -C "$env:FFX_SRC" apply --check --exclude=CMakeLists.txt "$patch"
-          git -C "$env:FFX_SRC" apply --exclude=CMakeLists.txt "$patch"
-
-      - name: Apply v0.3.23 focused legacy fixes
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0323\apply_data.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.23 data patch failed" }
-          python "$env:GITHUB_WORKSPACE\ci\v0323\apply_game.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.23 game patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.24 campaign flow fix
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0324\apply_flow.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.24 flow patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.25 player spawn safety
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0325\apply_spawn_safety.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.25 spawn patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.26 partial fidelity fixes
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0326\apply_partial_fidelity.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.26 fidelity patch failed" }
-
-          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
-          $c = Get-Content $cmakePath -Raw
-          $c = $c.Replace('project(FinalFightXNative VERSION 0.3.20 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.26 LANGUAGES CXX)')
-          Set-Content $cmakePath $c -Encoding UTF8
-          Pop-Location
-
-          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
-          $gameh = Get-Content (Join-Path $env:FFX_SRC "src\Game.h") -Raw
-          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
-          $datah = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.h") -Raw
-
-          if (-not $datah.Contains("float zDepth=13.f")) { throw "legacy attack Z depth missing" }
-          if (-not $game.Contains("f->attack.zDepth")) { throw "combat Z depth not wired" }
-          if (-not $game.Contains("owner.a+height")) { throw "projectile altitude not wired" }
-          if (-not $game.Contains("owner.x,owner.z")) { throw "projectile legacy X placement missing" }
-          if (-not $data.Contains('pushEvent(cur,"quake",start+q')) { throw "quake repeat parsing missing" }
-          if (-not $game.Contains("shakeAmpX_=0.f")) { throw "vertical quake semantics missing" }
-          if (-not $gameh.Contains("displayName")) { throw "spawn alias state missing" }
-          if (-not $game.Contains("a->displayName=s.alias")) { throw "spawn alias not wired" }
-          if (-not $game.Contains("findSafePlayerSpawnPoint")) { throw "v0.3.25 safe spawn lost" }
-          if (-not $gameh.Contains("Mode{Scene,StageComplete")) { throw "v0.3.24 stage complete lost" }
-          if (-not $game.Contains("openBorArenaEntryIntent")) { throw "v0.3.22 enemy entry lost" }
-          if (-not $game.Contains("Legacy absolute mode")) { throw "v0.3.23 HUD lost" }
-
-      - name: Apply v0.3.27 zero-force and grab fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0327\apply_combat_grab.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.27 combat/grab patch failed" }
-
-          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
-          $cm = Get-Content $cmakePath -Raw
-          $cm = $cm.Replace('project(FinalFightXNative VERSION 0.3.26 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.27 LANGUAGES CXX)')
-          Set-Content $cmakePath $cm -Encoding UTF8
-          Pop-Location
-
-          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
-          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
-          if ($game.Contains("f->attack.damage<=0")) { throw "zero-force contacts are still filtered" }
-          if ($game.Contains("releaseGrab(a,true,f->attack.damage")) { throw "hardcoded throw release still present" }
-          if (-not $game.Contains("const bool attackActive=f->attack.rect.valid;")) { throw "zero-force attack window missing" }
-          if (-not $game.Contains("if(f->attack.damage>0||f->attack.knockdown>0)t.hitInvincibleTime")) { throw "zero-force invulnerability guard missing" }
-          if (-not $game.Contains("heldTarget&&f->attack.knockdown>0")) { throw "authored throw release missing" }
-          if (-not $game.Contains('starts(a.anim,"follow")')) { throw "player follow state missing" }
-
-      - name: Apply v0.3.28 legacy fidelity fixes
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0328\apply_fidelity.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.28 fidelity patch failed" }
-
-          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
-          $cm = Get-Content $cmakePath -Raw
-          $cm = $cm.Replace('project(FinalFightXNative VERSION 0.3.27 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.28 LANGUAGES CXX)')
-          Set-Content $cmakePath $cm -Encoding UTF8
-          Pop-Location
-
-          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
-          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
-          $datah = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.h") -Raw
-
-          if (-not $datah.Contains("score=0, remove=1;")) { throw "OpenBOR remove default missing" }
-          if (-not $datah.Contains("int throwFrameWait=-1;")) { throw "model throwframewait missing" }
-          if (-not $data.Contains('pushEvent(cur,"throw",toInt(t[1])')) { throw "throwframe independence missing" }
-          if (-not $data.Contains('v=="none"?0:v=="hit"?1:toInt(t[1],1)')) { throw "remove parser fidelity missing" }
-          if (-not $data.Contains('+"namej"')) { throw "p#namej HUD parser missing" }
-          if (-not $data.Contains('+"lifex"')) { throw "p#lifex HUD parser missing" }
-          if (-not $game.Contains('hudText(L"PRESS START",h.join.prompt')) { throw "in-game join prompt missing" }
-          if (-not $game.Contains("const bool contactOnly=raw==0")) { throw "v0.3.27 zero-force semantics lost" }
-          if (-not $game.Contains("heldTarget&&f->attack.knockdown>0")) { throw "v0.3.27 grab release semantics lost" }
-
-      - name: Validate v0.3.28 legacy fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0328\validate_fidelity.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.28 fidelity validator failed" }
-
-      - name: Apply v0.3.29 defense and load fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0329\apply_defense_load.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.29 defense/load patch failed" }
-
-          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
-          $cm = Get-Content $cmakePath -Raw
-          $cm = $cm.Replace('project(FinalFightXNative VERSION 0.3.28 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.29 LANGUAGES CXX)')
-          Set-Content $cmakePath $cm -Encoding UTF8
-          Pop-Location
-
-          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
-          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
-          $datah = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.h") -Raw
-          if (-not $data.Contains('e.defenseAll=t.size()>2?toFloat(t[2],0.f):0.f;')) { throw "legacy defense all default missing" }
-          if (-not $data.Contains('cmd=="load"&&t.size()>1')) { throw "model load parser missing" }
-          if (-not $datah.Contains("modelLoads")) { throw "model load storage missing" }
-          if (-not $game.Contains("const bool contactOnly=raw==0")) { throw "v0.3.27 zero-force semantics lost" }
-          if (-not $datah.Contains("HudJoinLayout")) { throw "v0.3.28 HUD semantics lost" }
-
-      - name: Validate v0.3.29 defense and load fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0329\validate_defense_load.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.29 defense/load validator failed" }
-
-      - name: Apply v0.3.30 select hostile and throw fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0330\apply_runtime_fidelity.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.30 runtime fidelity patch failed" }
-          Pop-Location
-
-          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
-          $data = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.cpp") -Raw
-          $datah = Get-Content (Join-Path $env:FFX_SRC "src\OpenBorData.h") -Raw
-          if (-not $data.Contains('+"smenu"')) { throw "p#smenu parser missing" }
-          if (-not $game.Contains("bool Game::isHostile")) { throw "hostile runtime missing" }
-          if (-not $game.Contains('a.anim=="throw"&&a.grabTarget')) { throw "throwframewait runtime missing" }
-          if (-not $datah.Contains("throwDamage=21")) { throw "native throw properties missing" }
-          if (-not $game.Contains("v0.3.30")) { throw "v0.3.30 version missing" }
-
-      - name: Validate v0.3.30 runtime fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0330\validate_runtime_fidelity.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.30 runtime fidelity validator failed" }
-
-      - name: Apply v0.3.31 runtime stability
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0331\apply_runtime_stability.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.31 runtime stability patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.31 runtime stability
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0331\validate_runtime_stability.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.31 runtime stability validator failed" }
-          Pop-Location
-
-      - name: Apply v0.3.32 PAK fidelity
-        shell: pwsh
-        run: |
-          python "ci\v0332\apply_patch.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.32 PAK fidelity patch failed" }
-
-      - name: Validate v0.3.32 PAK fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0332\validate_pak_fidelity.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.32 PAK fidelity validator failed" }
-
-      - name: Apply final v0.3.32 counter semantics
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0332\apply_counter_drop_final.py"
-          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 counter patch failed" }
-          Pop-Location
-
-      - name: Validate final v0.3.32 counter semantics
-        shell: pwsh
-        run: |
-          python "ci\v0332\validate_counter_drop_final.py" "$env:FFX_SRC"
-          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 counter validator failed" }
-
-      - name: Apply final v0.3.32 weapon contact semantics
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0332\apply_weapon_contact_final.py"
-          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 weapon contact patch failed" }
-          Pop-Location
-
-      - name: Validate final v0.3.32 weapon contact semantics
-        shell: pwsh
-        run: |
-          python "ci\v0332\validate_weapon_contact_final.py" "$env:FFX_SRC"
-          if ($LASTEXITCODE -ne 0) { throw "final v0.3.32 weapon contact validator failed" }
-
-      - name: Apply v0.3.33 Build 3797 data fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0333\apply_build3797_data.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.33 data fidelity patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.33 Build 3797 runtime fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0333\apply_build3797_game.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.33 runtime fidelity patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.33 Build 3797 fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0333\validate_build3797_fidelity.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.33 Build 3797 validator failed" }
-
-      - name: Apply v0.3.34 data and semantics
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0334\apply_data_semantics.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.34 data/semantics patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.34 game runtime
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0334\apply_game_runtime.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.34 game/runtime patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.34 combat motion
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0334\validate_combat_motion.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.34 combat motion validator failed" }
-
-      - name: Apply v0.3.35 level queue data
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0335\apply_level_queue_data.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.35 level queue data patch failed" }
-          Pop-Location
-
-      - name: Apply v0.3.35 level queue runtime
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0335\apply_level_queue_runtime.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.35 level queue runtime patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.35 level queue
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0335\validate_level_queue.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.35 level queue validator failed" }
-
-      - name: Apply v0.3.36 multiplayer transition fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0336\apply_transition_fidelity.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.36 transition patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.36 multiplayer transition fidelity
-        shell: pwsh
-        run: |
-          python "ci\v0336\validate_transition_fidelity.py" "$env:FFX_SRC"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.36 transition validator failed" }
-
-      - name: Apply v0.3.37 damage target fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0337\apply_damage_target.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.37 damage target patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.37 damage target fidelity
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0337\validate_damage_target.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.37 damage target validator failed" }
-
-      - name: Apply v0.3.38 runtime regressions
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0338\apply_runtime_regressions.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.38 runtime regression patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.38 runtime regressions
-        shell: pwsh
-        run: |
-          python "ci\v0338\validate_runtime_regressions.py" "$env:FFX_SRC"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.38 runtime regression validator failed" }
-
-      - name: Apply v0.3.39 vertical transition and scene fidelity
-        shell: pwsh
-        run: |
-          Push-Location "$env:FFX_SRC"
-          python "$env:GITHUB_WORKSPACE\ci\v0339\apply_transition_scene.py"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.39 transition/scene patch failed" }
-          Pop-Location
-
-      - name: Validate v0.3.39 vertical transition and scene fidelity
-        shell: pwsh
-        run: |
-          python "ci\v0339\validate_transition_scene.py" "$env:FFX_SRC"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.39 transition/scene validator failed" }
-
-
-      - name: Validate v0.3.27 combat semantics
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0327\validate_combat_grab.py" "$env:FFX_SRC" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.27 combat/grab validator failed" }
-
-      - name: Validate partial fidelity assets
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0326\validate_partial_fidelity.py" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.26 asset validator failed" }
-
-      - name: Validate spawn safety
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0325\validate_spawn_safety.py" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "spawn safety validator failed" }
-
-      - name: Validate campaign flow
-        shell: pwsh
-        run: |
-          $portable = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10"
-          python "ci\v0324\validate_flow.py" "$portable"
-          if ($LASTEXITCODE -ne 0) { throw "campaign flow validator failed" }
-
-      - name: Configure x64
-        shell: pwsh
-        run: |
-          $build = Join-Path $env:RUNNER_TEMP "ffx-v0339-build"
-          cmake -S "$env:FFX_SRC" -B "$build" -A x64
-          "FFX_BUILD=$build" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Build Release
-        shell: pwsh
-        run: |
-          cmake --build "$env:FFX_BUILD" --config Release --target FinalFightX stage1_entry_validator v0334_semantics_validator v0335_level_actions_validator v0336_transition_validator v0337_damage_target_validator v0338_runtime_regression_validator v0339_transition_scene_validator -- /m
-          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
-          if (!(Test-Path $exe)) { throw "FinalFightX.exe not generated" }
-
-      - name: Run v0.3.34 native semantic test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0334_semantics_validator.exe"
-          if (!(Test-Path $test)) { throw "v0334_semantics_validator.exe not generated" }
-          & $test
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.34 native semantic test failed" }
-
-      - name: Run v0.3.35 level queue native test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0335_level_actions_validator.exe"
-          $data = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data"
-          if ((Test-Path (Join-Path $data "levels.txt")) -and (Test-Path (Join-Path $data "chars"))) {
-            & $test $data
-            if ($LASTEXITCODE -ne 0) { throw "v0.3.35 native level queue test failed" }
-          } else {
-            Write-Host "v0.3.35 native PAK test skipped: complete character assets not stored in repository"
-          }
-
-      - name: Run v0.3.36 native transition test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0336_transition_validator.exe"
-          if (!(Test-Path $test)) { throw "v0336_transition_validator.exe not generated" }
-          & $test
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.36 native transition test failed" }
-
-      - name: Run v0.3.37 native damage target test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0337_damage_target_validator.exe"
-          if (!(Test-Path $test)) { throw "v0337_damage_target_validator.exe not generated" }
-          & $test
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.37 native damage target test failed" }
-
-      - name: Run v0.3.38 native runtime regression test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0338_runtime_regression_validator.exe"
-          if (!(Test-Path $test)) { throw "v0338_runtime_regression_validator.exe not generated" }
-          & $test
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.38 native runtime regression test failed" }
-
-      - name: Run v0.3.39 native transition and scene test
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\v0339_transition_scene_validator.exe"
-          if (!(Test-Path $test)) { throw "v0339_transition_scene_validator.exe not generated" }
-          & $test
-          if ($LASTEXITCODE -ne 0) { throw "v0.3.39 native transition/scene test failed" }
-
-      - name: Run Stage 1 entry regression when PAK snapshot is complete
-        shell: pwsh
-        run: |
-          $test = Join-Path $env:FFX_BUILD "Release\stage1_entry_validator.exe"
-          if (!(Test-Path $test)) { throw "stage1_entry_validator.exe not generated" }
-          $data = Join-Path $env:GITHUB_WORKSPACE "Final-Fight-X-Native-Portable-Windows-x64-v0.3.10\assets\data"
-          if ((Test-Path (Join-Path $data "levels.txt")) -and (Test-Path (Join-Path $data "chars"))) {
-            & $test $data
-            if ($LASTEXITCODE -ne 0) { throw "Stage 1 entry regression test failed" }
-          } else {
-            Write-Host "Stage 1 PAK test skipped: complete character assets not stored in repository"
-          }
-
-      - name: Report executable
-        shell: pwsh
-        run: |
-          $exe = Join-Path $env:FFX_BUILD "Release\FinalFightX.exe"
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          $size = (Get-Item $exe).Length
-          Write-Host "Built FinalFightX.exe size=$size SHA256=$hash"
-
-      - name: Archive reconstructed source
-        shell: pwsh
-        run: |
-          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.39-source.zip"
-          Compress-Archive -Path "$env:FFX_SRC\*" -DestinationPath $zip -Force
-          "FFX_SOURCE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Upload reconstructed source
-        uses: actions/upload-artifact@v4
-        with:
-          name: Final-Fight-X-v0.3.39-source
-          path: ${{ env.FFX_SOURCE_ZIP }}
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: Final-Fight-X-v0.3.39-Windows-x64-exe
-          path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
+          name: OpenBOR-Native-Builder-v0.34.20-Portable-Windows-x64
+          path: ${{ env.DIST_ZIP }}
           if-no-files-found: error
           retention-days: 1
