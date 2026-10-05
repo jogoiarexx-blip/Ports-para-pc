@@ -22,7 +22,7 @@ jobs:
         run: |
           $parts = Get-ChildItem "ci/openbor-v03420/hex*.txt" | Sort-Object Name
           if ($parts.Count -ne 7) { throw "Expected 7 source chunks, found $($parts.Count)" }
-          $hex = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
+          $hex = (($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join "") -replace '\\s',''
           $archive = Join-Path $env:RUNNER_TEMP "openbor-v03420.tar.xz"
           [IO.File]::WriteAllBytes($archive,[Convert]::FromHexString($hex))
           tar -xf $archive -C $env:RUNNER_TEMP
