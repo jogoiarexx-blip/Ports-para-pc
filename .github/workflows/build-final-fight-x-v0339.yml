@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $build = Join-Path $env:RUNNER_TEMP "obnb-v03422-build"
-          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake -S "$env:OBNB_SRC" -B "$build" -G "Visual Studio 17 2022" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "OBNB_BUILD=$build" | Out-File $env:GITHUB_ENV -Append
 
@@ -111,7 +111,7 @@ jobs:
         shell: pwsh
         run: |
           $rb = Join-Path "$env:TEST_PORT" "runtime/build-ci"
-          cmake -S (Join-Path "$env:TEST_PORT" "runtime") -B $rb -G "Visual Studio 18 2026" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake -S (Join-Path "$env:TEST_PORT" "runtime") -B $rb -G "Visual Studio 17 2022" -A x64 -T ClangCL -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build $rb --config Release --target openbor-port -- /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
