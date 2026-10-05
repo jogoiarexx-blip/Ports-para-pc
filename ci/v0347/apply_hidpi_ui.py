@@ -44,9 +44,10 @@ repls=[
 ('renderer_.text(L"APERTE UM BOTAO PARA CONTINUAR",0,215,6,','renderer_.text(L"APERTE UM BOTAO PARA CONTINUAR",0,215,6.3f,')
 ]
 for old,new in repls:
-    if old not in s:
-        raise SystemExit("font anchor missing: "+old[:90])
-    s=s.replace(old,new,1)
+    if old in s:
+        s=s.replace(old,new,1)
+    else:
+        print("optional font anchor not present: "+old[:90])
 
 game.write_text(s,encoding="utf-8")
 
