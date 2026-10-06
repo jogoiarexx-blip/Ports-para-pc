@@ -1,17 +1,18 @@
-# v0.3.47 HiDPI UI + v0.3.46 Fullscreen UI + v0.3.45 HD Sharp
-name: Build Final Fight X v0.3.47 HiDPI UI
+# Final Fight X Web v0.1 + native v0.3.47 parity
+name: Build Final Fight X Web v0.1
 # v0342-build
 
 on:
   push:
     branches:
-      - build-ffx-v0347-hidpi-ui
+      - build-ffx-web-v001
     paths:
       - ".github/workflows/build-final-fight-x-v0342.yml"
       - "ci/v0342/**"
       - "ci/v0345/**"
       - "ci/v0346/**"
       - "ci/v0347/**"
+      - "ci/web_v001/**"
   pull_request:
     branches:
       - main
@@ -21,6 +22,7 @@ on:
       - "ci/v0345/**"
       - "ci/v0346/**"
       - "ci/v0347/**"
+      - "ci/web_v001/**"
   workflow_dispatch:
 
 permissions:
@@ -33,7 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: build-ffx-v0347-hidpi-ui
+          ref: build-ffx-web-v001
 
       - name: Reconstruct v0.3.20 compact source
         shell: pwsh
@@ -541,6 +543,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "v0.3.47 HiDPI UI validator failed" }
 
 
+      - name: Install WebAssembly platform layer
+        shell: pwsh
+        run: |
+          Copy-Item "ci\web_v001\PlatformCompat.h" "$env:FFX_SRC\src\PlatformCompat.h" -Force
+          Copy-Item "ci\web_v001\Renderer_web.h" "$env:FFX_SRC\src\Renderer_web.h" -Force
+          Copy-Item "ci\web_v001\Renderer_web.cpp" "$env:FFX_SRC\src\Renderer_web.cpp" -Force
+          Copy-Item "ci\web_v001\Audio_web.h" "$env:FFX_SRC\src\Audio_web.h" -Force
+          Copy-Item "ci\web_v001\Audio_web.cpp" "$env:FFX_SRC\src\Audio_web.cpp" -Force
+          Copy-Item "ci\web_v001\Input_web.h" "$env:FFX_SRC\src\Input_web.h" -Force
+          Copy-Item "ci\web_v001\Input_web.cpp" "$env:FFX_SRC\src\Input_web.cpp" -Force
+          Copy-Item "ci\web_v001\main_web.cpp" "$env:FFX_SRC\src\main_web.cpp" -Force
+          python "ci\web_v001\apply_game_web.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "web Game patch failed" }
+          Get-Content "ci\web_v001\CMake-web.txt" | Add-Content "$env:FFX_SRC\CMakeLists.txt"
+
+
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
         run: |
@@ -658,6 +676,41 @@ jobs:
           if (!(Test-Path $test)) { throw "v0342_ui_scene_validator.exe not generated" }
           & $test
           if ($LASTEXITCODE -ne 0) { throw "v0.3.42 native UI/scene test failed" }
+
+      - name: Setup Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 6.0.10
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure WebAssembly
+        shell: pwsh
+        run: |
+          $webBuild = Join-Path $env:RUNNER_TEMP "ffx-web-build"
+          emcmake cmake -S "$env:FFX_SRC" -B $webBuild -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { throw "Emscripten configure failed" }
+          "FFX_WEB_BUILD=$webBuild" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build WebAssembly
+        shell: pwsh
+        run: |
+          cmake --build "$env:FFX_WEB_BUILD" --target FinalFightXWeb -j 2
+          if ($LASTEXITCODE -ne 0) { throw "WebAssembly build failed" }
+          if (!(Test-Path "$env:FFX_WEB_BUILD\ffx.js")) { throw "ffx.js missing" }
+          if (!(Test-Path "$env:FFX_WEB_BUILD\ffx.wasm")) { throw "ffx.wasm missing" }
+          $wasm=(Get-Item "$env:FFX_WEB_BUILD\ffx.wasm").Length
+          $js=(Get-Item "$env:FFX_WEB_BUILD\ffx.js").Length
+          Write-Host "Web build OK: ffx.js=$js bytes ffx.wasm=$wasm bytes"
+
+      - name: Upload WebAssembly core
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-Web-v0.1-core
+          path: |
+            ${{ env.FFX_WEB_BUILD }}\ffx.js
+            ${{ env.FFX_WEB_BUILD }}\ffx.wasm
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Run Stage 1 entry regression when PAK snapshot is complete
         shell: pwsh
