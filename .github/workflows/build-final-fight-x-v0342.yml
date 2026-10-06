@@ -1,20 +1,28 @@
-# v0.3.42 UI/scene flow + cumulative native port fixes
-name: Build Final Fight X v0.3.42
+# Final Fight X Web v0.1 + native v0.3.47 parity
+name: Build Final Fight X Web v0.1
 # v0342-build
 
 on:
   push:
     branches:
-      - build-ffx-v0342
+      - build-ffx-web-v001
     paths:
       - ".github/workflows/build-final-fight-x-v0342.yml"
       - "ci/v0342/**"
+      - "ci/v0345/**"
+      - "ci/v0346/**"
+      - "ci/v0347/**"
+      - "ci/web_v001/**"
   pull_request:
     branches:
       - main
     paths:
       - ".github/workflows/build-final-fight-x-v0342.yml"
       - "ci/v0342/**"
+      - "ci/v0345/**"
+      - "ci/v0346/**"
+      - "ci/v0347/**"
+      - "ci/web_v001/**"
   workflow_dispatch:
 
 permissions:
@@ -27,7 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: build-ffx-v0342
+          ref: build-ffx-web-v001
 
       - name: Reconstruct v0.3.20 compact source
         shell: pwsh
@@ -463,6 +471,94 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "v0.3.42 UI/scene validator failed" }
 
 
+      - name: Apply v0.3.45 HD Sharp renderer and graphics toggle
+        shell: pwsh
+        run: |
+          $b64 = Get-Content "$env:GITHUB_WORKSPACE\ci\v0345\ffx-v0345-code.gitpatch.gz.b64" -Raw
+          $gzBytes = [Convert]::FromBase64String($b64)
+          $inStream = New-Object IO.MemoryStream(,$gzBytes)
+          $gzip = New-Object IO.Compression.GZipStream($inStream,[IO.Compression.CompressionMode]::Decompress)
+          $outStream = New-Object IO.MemoryStream
+          $gzip.CopyTo($outStream)
+          $gzip.Dispose()
+          $patch = Join-Path $env:RUNNER_TEMP "v0345-hd-sharp.gitpatch"
+          [IO.File]::WriteAllBytes($patch,$outStream.ToArray())
+
+          $utf8 = New-Object Text.UTF8Encoding($false)
+          foreach ($rel in @("src\Game.cpp","src\Game.h","src\Renderer.cpp","src\Renderer.h","src\main_win.cpp")) {
+            $p = Join-Path $env:FFX_SRC $rel
+            $t = [IO.File]::ReadAllText($p)
+            $t = $t.Replace("`r`n","`n")
+            [IO.File]::WriteAllText($p,$t,$utf8)
+          }
+
+          Push-Location "$env:FFX_SRC"
+          git init
+          git config user.name CI
+          git config user.email ci@example.invalid
+          git add -A
+          git commit -m "v0.3.42 reconstructed base" | Out-Null
+          git apply --check --ignore-space-change --ignore-whitespace "$patch"
+          git apply --ignore-space-change --ignore-whitespace "$patch"
+          Pop-Location
+
+          $cmakePath = Join-Path $env:FFX_SRC "CMakeLists.txt"
+          $cm = Get-Content $cmakePath -Raw
+          $cm = $cm.Replace('project(FinalFightXNative VERSION 0.3.42 LANGUAGES CXX)','project(FinalFightXNative VERSION 0.3.45 LANGUAGES CXX)')
+          Set-Content $cmakePath $cm -Encoding UTF8
+
+          $game = Get-Content (Join-Path $env:FFX_SRC "src\Game.cpp") -Raw
+          $renderer = Get-Content (Join-Path $env:FFX_SRC "src\Renderer.cpp") -Raw
+          if (-not $game.Contains("TEXTURAS HD")) { throw "v0.3.45 graphics toggle missing" }
+          if (-not $game.Contains("v0.3.45 HD SHARP")) { throw "v0.3.45 version banner missing" }
+          if (-not $renderer.Contains("if(!hdTextures_)return {}")) { throw "v0.3.45 HD asset toggle missing" }
+
+      - name: Apply v0.3.46 fullscreen menu compatibility
+        shell: pwsh
+        run: |
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0346\apply_fullscreen_ui.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.46 fullscreen UI patch failed" }
+          Pop-Location
+
+      - name: Validate v0.3.46 fullscreen menu compatibility
+        shell: pwsh
+        run: |
+          python "ci\v0346\validate_fullscreen_ui.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.46 fullscreen UI validator failed" }
+
+
+      - name: Apply v0.3.47 HiDPI and widescreen UI
+        shell: pwsh
+        run: |
+          Push-Location "$env:FFX_SRC"
+          python "$env:GITHUB_WORKSPACE\ci\v0347\apply_hidpi_ui.py"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.47 HiDPI UI patch failed" }
+          Pop-Location
+
+      - name: Validate v0.3.47 HiDPI and widescreen UI
+        shell: pwsh
+        run: |
+          python "ci\v0347\validate_hidpi_ui.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "v0.3.47 HiDPI UI validator failed" }
+
+
+      - name: Install WebAssembly platform layer
+        shell: pwsh
+        run: |
+          Copy-Item "ci\web_v001\PlatformCompat.h" "$env:FFX_SRC\src\PlatformCompat.h" -Force
+          Copy-Item "ci\web_v001\Renderer_web.h" "$env:FFX_SRC\src\Renderer_web.h" -Force
+          Copy-Item "ci\web_v001\Renderer_web.cpp" "$env:FFX_SRC\src\Renderer_web.cpp" -Force
+          Copy-Item "ci\web_v001\Audio_web.h" "$env:FFX_SRC\src\Audio_web.h" -Force
+          Copy-Item "ci\web_v001\Audio_web.cpp" "$env:FFX_SRC\src\Audio_web.cpp" -Force
+          Copy-Item "ci\web_v001\Input_web.h" "$env:FFX_SRC\src\Input_web.h" -Force
+          Copy-Item "ci\web_v001\Input_web.cpp" "$env:FFX_SRC\src\Input_web.cpp" -Force
+          Copy-Item "ci\web_v001\main_web.cpp" "$env:FFX_SRC\src\main_web.cpp" -Force
+          python "ci\web_v001\apply_game_web.py" "$env:FFX_SRC"
+          if ($LASTEXITCODE -ne 0) { throw "web Game patch failed" }
+          Get-Content "ci\web_v001\CMake-web.txt" | Add-Content "$env:FFX_SRC\CMakeLists.txt"
+
+
       - name: Validate v0.3.27 combat semantics
         shell: pwsh
         run: |
@@ -581,6 +677,41 @@ jobs:
           & $test
           if ($LASTEXITCODE -ne 0) { throw "v0.3.42 native UI/scene test failed" }
 
+      - name: Setup Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 6.0.10
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure WebAssembly
+        shell: pwsh
+        run: |
+          $webBuild = Join-Path $env:RUNNER_TEMP "ffx-web-build"
+          emcmake cmake -S "$env:FFX_SRC" -B $webBuild -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { throw "Emscripten configure failed" }
+          "FFX_WEB_BUILD=$webBuild" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build WebAssembly
+        shell: pwsh
+        run: |
+          cmake --build "$env:FFX_WEB_BUILD" --target FinalFightXWeb -j 2
+          if ($LASTEXITCODE -ne 0) { throw "WebAssembly build failed" }
+          if (!(Test-Path "$env:FFX_WEB_BUILD\ffx.js")) { throw "ffx.js missing" }
+          if (!(Test-Path "$env:FFX_WEB_BUILD\ffx.wasm")) { throw "ffx.wasm missing" }
+          $wasm=(Get-Item "$env:FFX_WEB_BUILD\ffx.wasm").Length
+          $js=(Get-Item "$env:FFX_WEB_BUILD\ffx.js").Length
+          Write-Host "Web build OK: ffx.js=$js bytes ffx.wasm=$wasm bytes"
+
+      - name: Upload WebAssembly core
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-Web-v0.1-core
+          path: |
+            ${{ env.FFX_WEB_BUILD }}\ffx.js
+            ${{ env.FFX_WEB_BUILD }}\ffx.wasm
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Run Stage 1 entry regression when PAK snapshot is complete
         shell: pwsh
         run: |
@@ -605,14 +736,14 @@ jobs:
       - name: Archive reconstructed source
         shell: pwsh
         run: |
-          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.42-source.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "Final-Fight-X-v0.3.47-HiDPI-UI-source.zip"
           Compress-Archive -Path "$env:FFX_SRC\*" -DestinationPath $zip -Force
           "FFX_SOURCE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload reconstructed source
         uses: actions/upload-artifact@v4
         with:
-          name: Final-Fight-X-v0.3.42-source
+          name: Final-Fight-X-v0.3.47-HiDPI-UI-source
           path: ${{ env.FFX_SOURCE_ZIP }}
           if-no-files-found: error
           retention-days: 1
@@ -620,7 +751,7 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: Final-Fight-X-v0.3.42-Windows-x64-exe
+          name: Final-Fight-X-v0.3.47-HiDPI-UI-Windows-x64-exe
           path: ${{ env.FFX_BUILD }}\Release\FinalFightX.exe
           if-no-files-found: error
           retention-days: 1
