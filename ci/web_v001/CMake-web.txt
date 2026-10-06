@@ -1,0 +1,23 @@
+
+
+if(EMSCRIPTEN)
+  add_executable(FinalFightXWeb
+    src/main_web.cpp
+    src/Game.cpp
+    src/Renderer_web.cpp
+    src/Audio_web.cpp
+    src/Input_web.cpp
+  )
+  target_link_libraries(FinalFightXWeb PRIVATE ffx_data)
+  target_include_directories(FinalFightXWeb PRIVATE src)
+  set_target_properties(FinalFightXWeb PROPERTIES OUTPUT_NAME "ffx" SUFFIX ".js")
+  target_link_options(FinalFightXWeb PRIVATE
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sINITIAL_MEMORY=67108864"
+    "-sFORCE_FILESYSTEM=1"
+    "-sDISABLE_EXCEPTION_CATCHING=0"
+    "-sEXPORTED_RUNTIME_METHODS=['FS','IDBFS']"
+    "-sENVIRONMENT=web"
+    "-sEXIT_RUNTIME=0"
+  )
+endif()
