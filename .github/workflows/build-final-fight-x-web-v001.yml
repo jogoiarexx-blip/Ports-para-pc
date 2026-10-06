@@ -1,0 +1,97 @@
+name: Build Final Fight X Web v0.1
+
+on:
+  push:
+    branches:
+      - build-ffx-web-v001
+    paths:
+      - ".github/workflows/build-final-fight-x-web-v001.yml"
+      - "ci/vweb/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    env:
+      NATIVE_SOURCE_RUN: "37527473540"
+      NATIVE_SOURCE_ARTIFACT: "Final-Fight-X-v0.3.47-HiDPI-UI-source"
+    steps:
+      - name: Checkout web port branch
+        uses: actions/checkout@v6
+        with:
+          ref: build-ffx-web-v001
+
+      - name: Download reconstructed v0.3.47 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-artifact" "$RUNNER_TEMP/ffx-web-src"
+          gh run download "$NATIVE_SOURCE_RUN" -R "${{ github.repository }}" -n "$NATIVE_SOURCE_ARTIFACT" -D "$RUNNER_TEMP/native-artifact"
+          SOURCE_ZIP="$RUNNER_TEMP/native-artifact/Final-Fight-X-v0.3.47-HiDPI-UI-source.zip"
+          test -f "$SOURCE_ZIP"
+          unzip -q "$SOURCE_ZIP" -d "$RUNNER_TEMP/ffx-web-src"
+          echo "FFX_SRC=$RUNNER_TEMP/ffx-web-src" >> "$GITHUB_ENV"
+
+      - name: Apply browser platform layer
+        run: |
+          cp ci/vweb/main_web.cpp "$FFX_SRC/src/main_web.cpp"
+          cp ci/vweb/Renderer_web.cpp "$FFX_SRC/src/Renderer_web.cpp"
+          cp ci/vweb/Renderer_web.h "$FFX_SRC/src/Renderer_web.h"
+          cp ci/vweb/Audio_web.cpp "$FFX_SRC/src/Audio_web.cpp"
+          cp ci/vweb/Audio_web.h "$FFX_SRC/src/Audio_web.h"
+          cp ci/vweb/Input_web.cpp "$FFX_SRC/src/Input_web.cpp"
+          cp ci/vweb/Input_web.h "$FFX_SRC/src/Input_web.h"
+          cp ci/vweb/PlatformCompat.h "$FFX_SRC/src/PlatformCompat.h"
+          python ci/vweb/apply_game_web.py "$FFX_SRC"
+          cp ci/vweb/CMakeLists-web.txt "$FFX_SRC/CMakeLists.txt"
+          grep -q "__EMSCRIPTEN__" "$FFX_SRC/src/Game.cpp"
+          grep -q "Renderer_web.h" "$FFX_SRC/src/Game.h"
+
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: latest
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify Emscripten
+        run: emcc -v
+
+      - name: Configure WebAssembly build
+        run: |
+          emcmake cmake -S "$FFX_SRC" -B "$RUNNER_TEMP/ffx-web-build" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build WebAssembly
+        run: |
+          cmake --build "$RUNNER_TEMP/ffx-web-build" --config Release -j 2
+
+      - name: Validate web binaries
+        run: |
+          test -s "$RUNNER_TEMP/ffx-web-build/ffx.js"
+          test -s "$RUNNER_TEMP/ffx-web-build/ffx.wasm"
+          ls -lh "$RUNNER_TEMP/ffx-web-build/ffx.js" "$RUNNER_TEMP/ffx-web-build/ffx.wasm"
+
+      - name: Stage web runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/final-fight-x-web"
+          cp "$RUNNER_TEMP/ffx-web-build/ffx.js" "$RUNNER_TEMP/final-fight-x-web/ffx.js"
+          cp "$RUNNER_TEMP/ffx-web-build/ffx.wasm" "$RUNNER_TEMP/final-fight-x-web/ffx.wasm"
+          cat > "$RUNNER_TEMP/final-fight-x-web/BUILD-INFO.txt" <<'EOF'
+          Final Fight X Web v0.1
+          Core: Native v0.3.47 HiDPI UI
+          Target: WebAssembly / GitHub Pages
+          Renderer: HTML5 Canvas bridge
+          Audio: Web Audio bridge
+          Input: Keyboard + Gamepad API bridge
+          EOF
+
+      - name: Upload WebAssembly runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: Final-Fight-X-Web-v0.1-WASM-runtime
+          path: ${{ runner.temp }}/final-fight-x-web
+          if-no-files-found: error
+          retention-days: 7
