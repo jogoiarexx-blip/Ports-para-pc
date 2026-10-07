@@ -20,8 +20,10 @@ h_repl='''    void resize(UINT w,UINT h);
     int webDebugActiveEnemies() const;
     float webDebugPlayerX() const;
     int webDebugPlayerHp() const;
-    int webDebugNextSpawn() const;
+    int webDebugNextAction() const;
+    int webDebugActionCount() const;
     int webDebugSpawnCount() const;
+    int webDebugLevelWaiting() const;
 #endif
 private:'''
 if h_anchor not in s: raise SystemExit('Game.h web debug anchor missing')
@@ -81,8 +83,10 @@ int Game::webDebugActorCount() const{return (int)actors_.size();}
 int Game::webDebugActiveEnemies() const{return activeEnemies();}
 float Game::webDebugPlayerX() const{auto p=player(0);return p?p->x:-1.f;}
 int Game::webDebugPlayerHp() const{auto p=player(0);return p?p->hp:-1;}
-int Game::webDebugNextSpawn() const{return (int)nextSpawn_;}
+int Game::webDebugNextAction() const{return (int)nextLevelAction_;}
+int Game::webDebugActionCount() const{return (int)level_.actions.size();}
 int Game::webDebugSpawnCount() const{return (int)level_.spawns.size();}
+int Game::webDebugLevelWaiting() const{return levelWaiting_?1:0;}
 #endif
 void Game::toggleFullscreen(){setFullscreen(!fullscreen_);saveSettings();beginUiTransition();}'''
 if telemetry_anchor not in s: raise SystemExit('Game.cpp web telemetry anchor missing')
