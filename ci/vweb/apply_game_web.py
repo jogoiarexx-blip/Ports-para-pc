@@ -22,7 +22,7 @@ h_repl='''    void resize(UINT w,UINT h);
     int webDebugPlayerHp() const;
     int webDebugNextAction() const;
     int webDebugActionCount() const;
-    int webDebugSpawnCount() const;
+    int webDebugActionCount() const;
     int webDebugLevelWaiting() const;
 #endif
 private:'''
@@ -85,7 +85,7 @@ float Game::webDebugPlayerX() const{auto p=player(0);return p?p->x:-1.f;}
 int Game::webDebugPlayerHp() const{auto p=player(0);return p?p->hp:-1;}
 int Game::webDebugNextAction() const{return (int)nextLevelAction_;}
 int Game::webDebugActionCount() const{return (int)level_.actions.size();}
-int Game::webDebugSpawnCount() const{return (int)level_.spawns.size();}
+int Game::webDebugActionCount() const{return (int)level_.actions.size();}
 int Game::webDebugLevelWaiting() const{return levelWaiting_?1:0;}
 #endif
 void Game::toggleFullscreen(){setFullscreen(!fullscreen_);saveSettings();beginUiTransition();}'''
