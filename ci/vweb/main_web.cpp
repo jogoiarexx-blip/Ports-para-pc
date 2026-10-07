@@ -10,10 +10,10 @@ static std::unique_ptr<ffx::Game> g;
 static double lastMs=0.0;
 
 EM_JS(void, js_ffx_engine_state,
-    (int mode,int stage,float camera,float progress,int actors,int enemies,float playerX,int playerHp,int nextSpawn,int spawnCount), {
+    (int mode,int stage,float camera,float progress,int actors,int enemies,float playerX,int playerHp,int nextAction,int actionCount,int spawnCount,int waiting), {
     if(globalThis.FFXWeb && FFXWeb.updateEngineDebug){
         FFXWeb.updateEngineDebug({
-            mode,stage,camera,progress,actors,enemies,playerX,playerHp,nextSpawn,spawnCount
+            mode,stage,camera,progress,actors,enemies,playerX,playerHp,nextAction,actionCount,spawnCount,waiting:!!waiting
         });
     }
 });
@@ -30,7 +30,7 @@ static void frame(){
     js_ffx_engine_state(
         g->webDebugMode(),g->webDebugStageIndex(),g->webDebugCameraX(),g->webDebugScrollProgress(),
         g->webDebugActorCount(),g->webDebugActiveEnemies(),g->webDebugPlayerX(),g->webDebugPlayerHp(),
-        g->webDebugNextSpawn(),g->webDebugSpawnCount());
+        g->webDebugNextAction(),g->webDebugActionCount(),g->webDebugSpawnCount(),g->webDebugLevelWaiting());
 }
 
 int main(){
