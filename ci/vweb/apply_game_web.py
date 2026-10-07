@@ -4,6 +4,29 @@ root=Path(sys.argv[1])
 ph=root/'src/Game.h'; pc=root/'src/Game.cpp'
 s=ph.read_text(encoding='utf-8-sig')
 s=s.replace('#ifdef _WIN32\n#include "Audio.h"\n#include "Input.h"\n#include "OpenBorData.h"\n#include "OpenBorSemantics.h"\n#include "Renderer.h"', '#if defined(_WIN32) || defined(__EMSCRIPTEN__)\n#if defined(__EMSCRIPTEN__)\n#include "PlatformCompat.h"\n#include "Audio_web.h"\n#include "Input_web.h"\n#include "Renderer_web.h"\n#else\n#include "Audio.h"\n#include "Input.h"\n#include "Renderer.h"\n#endif\n#include "OpenBorData.h"\n#include "OpenBorSemantics.h"')
+
+# Add read-only gameplay telemetry used by the web regression harness.
+h_anchor='''    void resize(UINT w,UINT h);
+    void toggleFullscreen();
+private:'''
+h_repl='''    void resize(UINT w,UINT h);
+    void toggleFullscreen();
+#if defined(__EMSCRIPTEN__)
+    int webDebugMode() const;
+    int webDebugStageIndex() const;
+    float webDebugCameraX() const;
+    float webDebugScrollProgress() const;
+    int webDebugActorCount() const;
+    int webDebugActiveEnemies() const;
+    float webDebugPlayerX() const;
+    int webDebugPlayerHp() const;
+    int webDebugNextSpawn() const;
+    int webDebugSpawnCount() const;
+#endif
+private:'''
+if h_anchor not in s: raise SystemExit('Game.h web debug anchor missing')
+s=s.replace(h_anchor,h_repl,1)
+
 ph.write_text(s,encoding='utf-8')
 
 s=pc.read_text(encoding='utf-8-sig')
@@ -46,6 +69,25 @@ void Game::setFullscreen(bool enabled){
 }
 '''
 s=s[:start]+newblock+s[end:]
+
+# Add implementations before toggleFullscreen; these are read-only and do not affect gameplay.
+telemetry_anchor='''void Game::toggleFullscreen(){setFullscreen(!fullscreen_);saveSettings();beginUiTransition();}'''
+telemetry_impl='''#if defined(__EMSCRIPTEN__)
+int Game::webDebugMode() const{return (int)mode_;}
+int Game::webDebugStageIndex() const{return stageIndex_;}
+float Game::webDebugCameraX() const{return cameraX_;}
+float Game::webDebugScrollProgress() const{return scrollProgress();}
+int Game::webDebugActorCount() const{return (int)actors_.size();}
+int Game::webDebugActiveEnemies() const{return activeEnemies();}
+float Game::webDebugPlayerX() const{auto p=player(0);return p?p->x:-1.f;}
+int Game::webDebugPlayerHp() const{auto p=player(0);return p?p->hp:-1;}
+int Game::webDebugNextSpawn() const{return (int)nextSpawn_;}
+int Game::webDebugSpawnCount() const{return (int)level_.spawns.size();}
+#endif
+void Game::toggleFullscreen(){setFullscreen(!fullscreen_);saveSettings();beginUiTransition();}'''
+if telemetry_anchor not in s: raise SystemExit('Game.cpp web telemetry anchor missing')
+s=s.replace(telemetry_anchor,telemetry_impl,1)
+
 s=s.replace('case 6:PostMessage(hwnd_,WM_CLOSE,0,0);break;', '#if defined(_WIN32)\n        case 6:PostMessage(hwnd_,WM_CLOSE,0,0);break;\n#else\n        case 6:ffx_web_exit();break;\n#endif',1)
 s=s.replace('if(GetAsyncKeyState(VK_ESCAPE)&0x8000){bindingCapture_=false;input_.clearCaptureEvents();return;}', '#if defined(_WIN32)\n            if(GetAsyncKeyState(VK_ESCAPE)&0x8000){bindingCapture_=false;input_.clearCaptureEvents();return;}\n#else\n            if(input_.uiState().back){bindingCapture_=false;input_.clearCaptureEvents();return;}\n#endif',1)
 pc.write_text(s,encoding='utf-8')
